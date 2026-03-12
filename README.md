@@ -22,22 +22,15 @@ PR opened
 
 ### Example PR Comment
 
-When a developer changes the "Add to Cart" button styling, Claude posts:
+A developer opens a PR to fix the Orchid Mantis cart bug. Claude boots a cloud device, taps "Add to Cart" on the Orchid Mantis, and catches the bug — Gold Tortoise appears in the cart instead:
 
-> **📱 Mobile PR Review**
->
-> **Changes detected:** Updated the "Add to Cart" button — changed from outline to filled blue with cart icon.
->
-> **✅ Product detail page renders correctly**
-> | Before | After |
-> |--------|-------|
-> | ![before](screenshot) | ![after](screenshot) |
->
-> **✅ Add to Cart interaction works** — cart badge updated to "1"
->
-> **Result:** ✅ All changes validated
+| Orchid Mantis product page ($62.00) | Bug: Cart shows Gold Tortoise ($18.00) |
+|---|---|
+| ![Orchid Mantis detail](examples/screenshots/03_orchid_mantis_detail.png) | ![Wrong product in cart](examples/screenshots/04_after_add_to_cart.png) |
 
-Full example: [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md)
+> **Result:** ❌ Bug reproduced — Orchid Mantis → Gold Tortoise substitution confirmed. Fix looks correct, merge after rebuild.
+
+Full example with all screenshots: [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md)
 
 ## Setup (5 minutes)
 
