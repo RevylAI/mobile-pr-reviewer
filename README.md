@@ -1,5 +1,7 @@
 # Mobile PR Reviewer
 
+> Part of [Mobile DevTools](https://github.com/RevylAI/mobile-devtools) — open-source tools for mobile engineering teams.
+
 AI-powered visual PR reviews for mobile apps. When a developer opens a pull request, Claude Code analyzes the diff, boots a cloud device with the new build, navigates to the changed screen, validates the change works, and posts screenshots directly in the PR.
 
 > Developer pushes a button color change → Claude boots a phone in the cloud → taps through to the screen → screenshots the result → posts it in the PR. Automatically.
