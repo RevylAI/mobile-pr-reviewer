@@ -1,0 +1,93 @@
+name: Mobile PR Review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  build:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      build-path: ${{ steps.build.outputs.path }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Install dependencies
+      - name: Install dependencies
+        working-directory: sample-app
+        run: npm ci
+
+      # Build the app
+      # NOTE: Customize this step for your build system (Gradle, Xcode, Flutter, etc.)
+      - name: Build app
+        id: build
+        working-directory: sample-app
+        run: |
+          npx --yes eas-cli build --platform android --profile preview --local --output build/app.apk --non-interactive
+          echo "path=sample-app/build/app.apk" >> "$GITHUB_OUTPUT"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: sample-app/build/app.apk
+
+  review:
+    needs: build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-build
+          path: build/
+
+      # Install Revyl CLI
+      - name: Install Revyl CLI
+        run: curl -fsSL https://get.revyl.ai | sh
+
+      # Upload build to Revyl
+      - name: Upload build to Revyl
+        run: |
+          revyl build upload \
+            --skip-build \
+            --platform android \
+            --app "$REVYL_APP_ID" \
+            --file build/app.apk \
+            --json --yes
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_APP_ID: ${{ secrets.REVYL_APP_ID }}
+
+      # Claude reviews the PR on a live device
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-20250514
+          trigger_phrase: "/review"
+          direct_prompt: |
+            You are a mobile PR review bot. Read CLAUDE.md for your full instructions.
+
+            The app build has been uploaded to Revyl (app ID: ${{ secrets.REVYL_APP_ID }}).
+            Use the revyl CLI to start a device, validate the PR changes, and report back.
+
+            The revyl CLI is already installed and REVYL_API_KEY is set in the environment.
+          allowed_tools: "Bash,Read,Glob,Grep,Write"
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_APP_ID: ${{ secrets.REVYL_APP_ID }}
