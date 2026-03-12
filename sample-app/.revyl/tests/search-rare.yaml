@@ -1,0 +1,26 @@
+# Revyl Test Definition
+# Last synced: 2026-02-17T15:26:49-08:00
+
+_meta:
+    remote_id: 67874e51-0562-42af-85e7-7200a8b45e7d
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-02-17T15:26:49-08:00"
+    checksum: c04cdb8148f9c03974702ba6eaccea00af713dc3fe2447a7df21ac5dec24104e
+test:
+    metadata:
+        name: search-rare
+        platform: ios
+    build:
+        name: bug-bazaar-ios-preview
+    blocks:
+        - type: validation
+          step_description: The shop screen is visible with bug product cards
+        - type: instructions
+          step_description: Tap the search tab in the bottom navigation
+        - type: validation
+          step_description: The search screen is visible with a search bar and trending searches including "Rare"
+        - type: instructions
+          step_description: Tap on the "Rare" trending search chip
+        - type: validation
+          step_description: Search results are displayed showing products with the "RARE" badge such as Hercules Beetle, Atlas Moth, or Tarantula Hawk

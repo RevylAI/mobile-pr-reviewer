@@ -1,0 +1,50 @@
+# Revyl Test Definition
+# Last synced: 2026-02-17T15:16:23-08:00
+
+_meta:
+    remote_id: ae7cc50f-1d00-4217-921c-634a1a8868fb
+    remote_version: 4
+    local_version: 4
+    last_synced_at: "2026-02-17T15:16:23-08:00"
+    checksum: bc3284de8b9afa51c67ec9963e4f1de6151cbd851064d8ee30d633d10978baf2
+test:
+    metadata:
+        name: add-to-cart
+        platform: ios
+    build:
+        name: bug-bazaar-ios-preview
+    blocks:
+        - type: validation
+          step_description: The shop screen is visible with bug product cards
+        - type: instructions
+          step_description: Tap on the Hercules Beetle product card
+        - type: validation
+          step_description: The product detail page shows "Hercules Beetle" and "$45.00"
+        - type: instructions
+          step_description: Tap the "ADD TO CART" button
+        - type: validation
+          step_description: The cart is visible with Hercules Beetle listed
+        - type: instructions
+          step_description: Tap the "CHECKOUT" button
+        - type: validation
+          step_description: The checkout shipping address form is visible
+        - type: instructions
+          step_description: Tap "Use saved address" to autofill the shipping fields
+        - type: instructions
+          step_description: Tap "CONTINUE TO PAYMENT"
+        - type: validation
+          step_description: The payment method form is visible
+        - type: instructions
+          step_description: Tap "Use demo card" to autofill the payment fields
+        - type: instructions
+          step_description: Tap "REVIEW ORDER"
+        - type: validation
+          step_description: The order review shows Hercules Beetle, the shipping address, and a masked card number ending in 4242
+        - type: instructions
+          step_description: Tap the "PLACE ORDER" button
+        - type: validation
+          step_description: The confirmation screen shows "Order Placed!" with an order ID
+        - type: instructions
+          step_description: Tap "VIEW ORDERS"
+        - type: validation
+          step_description: The Account page shows an order with "Processing" status

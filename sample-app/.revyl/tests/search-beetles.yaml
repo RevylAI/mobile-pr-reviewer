@@ -1,0 +1,30 @@
+# Revyl Test Definition
+# Last synced: 2026-02-17T15:26:47-08:00
+
+_meta:
+    remote_id: 333d37a4-2e66-4e67-b5d2-b84e836c574a
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-02-17T15:26:47-08:00"
+    checksum: 57a0c2326c8ed448ee292dbb12979a1060799e106224b98af958c4c353e408e6
+test:
+    metadata:
+        name: search-beetles
+        platform: ios
+    build:
+        name: bug-bazaar-ios-preview
+    blocks:
+        - type: validation
+          step_description: The shop screen is visible with bug product cards
+        - type: instructions
+          step_description: Tap the search tab in the bottom navigation
+        - type: validation
+          step_description: The search screen is visible with a search bar and trending searches
+        - type: instructions
+          step_description: Tap the search bar and type "Beetle"
+        - type: validation
+          step_description: Search results are displayed showing multiple beetle products including Hercules Beetle and Goliath Beetle
+        - type: instructions
+          step_description: Tap on the Hercules Beetle result
+        - type: validation
+          step_description: The product detail page shows "Hercules Beetle" with a price of "$45.00"

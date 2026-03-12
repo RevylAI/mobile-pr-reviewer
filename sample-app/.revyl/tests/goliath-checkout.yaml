@@ -1,0 +1,46 @@
+# Revyl Test Definition
+# Last synced: 2026-02-17T15:26:54-08:00
+
+_meta:
+    remote_id: feab5d5f-4604-40a9-a168-f6ba81705c64
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-02-17T15:26:54-08:00"
+    checksum: 8b03fe92211a1bb9217f441cef76d601e47c95734d0761aae96d51da41809702
+test:
+    metadata:
+        name: goliath-checkout
+        platform: ios
+    build:
+        name: bug-bazaar-ios-preview
+    blocks:
+        - type: validation
+          step_description: The shop screen is visible with bug product cards
+        - type: instructions
+          step_description: Scroll down to find the Goliath Beetle product card and tap on it
+        - type: validation
+          step_description: The product detail page shows "Goliath Beetle" with a price of "$72.00"
+        - type: instructions
+          step_description: Tap the "ADD TO CART" button
+        - type: validation
+          step_description: The cart shows Goliath Beetle listed
+        - type: instructions
+          step_description: Tap the "CHECKOUT" button
+        - type: validation
+          step_description: The checkout shipping address form is visible
+        - type: instructions
+          step_description: Tap "Use saved address" to autofill the shipping fields
+        - type: instructions
+          step_description: Tap "CONTINUE TO PAYMENT"
+        - type: validation
+          step_description: The payment method form is visible
+        - type: instructions
+          step_description: Tap "Use demo card" to autofill the payment fields
+        - type: instructions
+          step_description: Tap "REVIEW ORDER"
+        - type: validation
+          step_description: The order review shows Goliath Beetle with a total of "$77.76" which includes tax
+        - type: instructions
+          step_description: Verify the "PLACE ORDER" button at the bottom displays the total "$77.76" including tax, then tap it
+        - type: validation
+          step_description: The confirmation screen shows "Order Placed!" with an order ID

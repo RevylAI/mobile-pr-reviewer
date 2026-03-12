@@ -1,0 +1,30 @@
+# Revyl Test Definition
+# Last synced: 2026-02-17T18:16:44-08:00
+
+_meta:
+    remote_id: e826ec57-530c-4a84-8065-b87260e184aa
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-02-17T18:16:43-08:00"
+    checksum: 8ced77507a5b3bcffd370401de6a62a6485c06a8aa66b6a9e59f4dbec9541501
+test:
+    metadata:
+        name: orchid-mantis-cart-v2
+        platform: ios
+        tags:
+            - regression
+            - cart
+            - bug-hunt
+    build:
+        name: bug-bazaar-ios-preview
+    blocks:
+        - type: validation
+          step_description: The shop screen is displayed with product cards visible
+        - type: instructions
+          step_description: Scroll down on the product grid to find the Orchid Mantis product card and tap on it
+        - type: validation
+          step_description: The Orchid Mantis product detail page is displayed showing the price $62.00
+        - type: instructions
+          step_description: Tap the ADD TO CART button
+        - type: validation
+          step_description: The cart contains Orchid Mantis at $62.00, not Gold Tortoise or any other product

@@ -1,0 +1,49 @@
+# Revyl Test Definition
+# Last synced: 2026-02-17T18:16:36-08:00
+
+_meta:
+    remote_id: 151225ed-2323-47f3-9a0a-21f2ed4b2226
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-02-17T18:16:36-08:00"
+    checksum: 71c1288e52f6f91b5bef6b9f2f2af309322ec86c3d7dc4010a0630a8fb622884
+test:
+    metadata:
+        name: add-to-cart-v2
+        platform: ios
+        tags:
+            - smoke
+            - checkout
+    build:
+        name: bug-bazaar-ios-preview
+    blocks:
+        - type: validation
+          step_description: The shop screen is displayed showing the BUG BAZAAR header and a grid of product cards
+        - type: instructions
+          step_description: Tap on the Blue Morpho product card
+        - type: validation
+          step_description: The Blue Morpho product detail page is displayed showing the price $28.50 and an ADD TO CART button
+        - type: instructions
+          step_description: Tap the ADD TO CART button
+        - type: validation
+          step_description: The cart screen is displayed showing Blue Morpho at $28.50
+        - type: instructions
+          step_description: Tap the CHECKOUT button at the bottom of the cart
+        - type: validation
+          step_description: The checkout shipping address form is displayed
+        - type: instructions
+          step_description: Tap the 'Use saved address' button to auto-fill the shipping fields
+        - type: instructions
+          step_description: Tap the CONTINUE TO PAYMENT button
+        - type: validation
+          step_description: The payment form is displayed with card number, expiry, CVV, and name fields
+        - type: instructions
+          step_description: Tap the 'Use demo card' button to auto-fill the payment fields
+        - type: instructions
+          step_description: Tap the REVIEW ORDER button
+        - type: validation
+          step_description: The order review screen is displayed showing Blue Morpho, the shipping address, payment details, and the order total
+        - type: instructions
+          step_description: Tap the PLACE ORDER button at the bottom of the review screen
+        - type: validation
+          step_description: The order confirmation screen is displayed showing 'Order Placed!' with an order ID and delivery estimate

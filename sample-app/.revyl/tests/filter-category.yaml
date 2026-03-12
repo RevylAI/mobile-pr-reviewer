@@ -1,0 +1,30 @@
+# Revyl Test Definition
+# Last synced: 2026-02-17T17:04:27-08:00
+
+_meta:
+    remote_id: 6da35c81-69d1-4dd0-a2ed-99f730a289a4
+    remote_version: 4
+    local_version: 4
+    last_synced_at: "2026-02-17T17:04:27-08:00"
+    checksum: 6a8cfed3d081fb55d58950865a5b585e4d4a7b9fea02d4de44b822ff6d02be92
+test:
+    metadata:
+        name: filter-category
+        platform: ios
+    build:
+        name: bug-bazaar-ios-preview
+    blocks:
+        - type: validation
+          step_description: The shop screen is visible showing all bug product cards with category filter chips at the top
+        - type: instructions
+          step_description: Tap the "Beetles" filter chip
+        - type: validation
+          step_description: Only beetle products are displayed, no non-beetle products like butterflies or spiders are showing
+        - type: instructions
+          step_description: Tap the "Spiders" filter chip
+        - type: validation
+          step_description: Only spider products are displayed, no non-spider products like beetles or butterflies are showing
+        - type: instructions
+          step_description: Tap the "All Bugs" filter chip
+        - type: validation
+          step_description: All bug product cards are visible again showing the full catalog

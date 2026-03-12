@@ -1,0 +1,31 @@
+# Revyl Test Definition
+# Last synced: 2026-02-17T18:16:46-08:00
+
+_meta:
+    remote_id: 14ca894b-06ca-47d5-991e-81edea068c81
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-02-17T18:16:46-08:00"
+    checksum: ad457457c0271b773e583b3f0b3ab2bc2ec5b191d7f4e532190ea88f8c84d2fa
+test:
+    metadata:
+        name: search-beetles-v2
+        platform: ios
+        tags:
+            - smoke
+            - search
+    build:
+        name: bug-bazaar-ios-preview
+    blocks:
+        - type: instructions
+          step_description: Tap the Search tab in the bottom navigation bar
+        - type: validation
+          step_description: The search screen is displayed with a search input field, trending searches section, and popular specimens section
+        - type: instructions
+          step_description: Tap the search input field and type 'Beetle'
+        - type: validation
+          step_description: Search results are displayed showing beetle products with a specimen count, and no non-beetle products are shown in the results
+        - type: instructions
+          step_description: Tap on the Hercules Beetle in the search results
+        - type: validation
+          step_description: The Hercules Beetle product detail page is displayed showing the price $45.00 and the RARE badge
