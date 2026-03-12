@@ -59,7 +59,7 @@ jobs:
 
       # Install Revyl CLI
       - name: Install Revyl CLI
-        run: curl -fsSL https://get.revyl.ai | sh
+        run: pip install revyl
 
       # Upload build to Revyl
       - name: Upload build to Revyl
