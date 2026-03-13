@@ -54,11 +54,13 @@ Triggered by commenting `/test` on a PR (requires a build from a prior PR push).
 
 > **Result:** Bug reproduced — Orchid Mantis to Gold Tortoise substitution confirmed.
 
-**Test mode** — Structured test with shareable report:
+**Test mode** — Claude creates a 5-step E2E test from the diff, runs it on an iPhone 16, and catches the cart substitution bug:
 
-> **Status:** Passed  |  **Report:** [View full report](https://app.revyl.ai/report/...)  |  **Test steps:** 5 blocks
+> **Status:** Failed (bug caught)  |  **Report:** [View full report](https://app.revyl.ai/tests/report?taskId=4028df46-5cce-410c-bbe2-e40a6d42657d)  |  **Test steps:** 5 blocks
 
-Full example with all screenshots: [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md)
+The test validated the shop screen, scrolled to Orchid Mantis, confirmed the product detail page, tapped ADD TO CART, then caught the bug — the cart showed "Gold Tortoise" at $36.00 instead of "Orchid Mantis" at $62.00.
+
+Full interactive mode example with screenshots: [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md)
 
 ## Setup (5 minutes)
 
