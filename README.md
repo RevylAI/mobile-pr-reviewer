@@ -202,7 +202,7 @@ Both approaches use Revyl's cloud devices — no local emulators or physical dev
 
 ## Built With
 
-- [Revyl CLI](https://revyl.ai) — Cloud device provisioning and AI-grounded interaction
+- [Revyl CLI](https://github.com/RevylAI/revyl-cli) — Cloud device provisioning and AI-grounded interaction
 - [Claude Code Action](https://github.com/anthropics/claude-code-action) — Run Claude Code in GitHub Actions
 - [Expo](https://expo.dev) — React Native framework (sample app)
 
