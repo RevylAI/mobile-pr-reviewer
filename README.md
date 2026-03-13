@@ -2,11 +2,16 @@
 
 > Part of [Mobile DevTools](https://github.com/RevylAI/mobile-devtools) — open-source tools for mobile engineering teams.
 
-AI-powered visual PR reviews for mobile apps. When a developer opens a pull request, Claude Code analyzes the diff, boots a cloud device with the new build, navigates to the changed screen, validates the change works, and posts screenshots directly in the PR.
+AI-powered visual PR reviews for mobile apps. Two modes:
+
+1. **Interactive** — Claude boots a cloud device, navigates to the changed screen, and posts screenshots
+2. **E2E Test** — Claude creates a YAML test from the diff, runs it on Revyl's platform, and posts a shareable report
 
 > Developer pushes a button color change → Claude boots a phone in the cloud → taps through to the screen → screenshots the result → posts it in the PR. Automatically.
 
 ## How It Works
+
+### Mode 1: Interactive Review (default)
 
 ```
 PR opened
@@ -22,15 +27,36 @@ PR opened
       6. Posts results as a PR comment
 ```
 
-### Example PR Comment
+Triggered automatically on PR open, or re-trigger with a `/review` comment.
 
-A developer opens a PR to fix the Orchid Mantis cart bug. Claude boots a cloud device, taps "Add to Cart" on the Orchid Mantis, and catches the bug — Gold Tortoise appears in the cart instead:
+### Mode 2: E2E Test Review
+
+```
+Comment "/test" on a PR
+  → Claude Code Action triggers:
+      1. Reads the git diff
+      2. Creates a YAML E2E test definition targeting the changed flows
+      3. Pushes the test to Revyl's cloud platform
+      4. Runs the test against the latest uploaded build
+      5. Generates a shareable report link
+      6. Posts results with the report link as a PR comment
+```
+
+Triggered by commenting `/test` on a PR (requires a build from a prior PR push).
+
+### Example PR Comments
+
+**Interactive mode** — Screenshots from a live device session:
 
 | Orchid Mantis product page ($62.00) | Bug: Cart shows Gold Tortoise ($18.00) |
 |---|---|
 | ![Orchid Mantis detail](examples/screenshots/03_orchid_mantis_detail.png) | ![Wrong product in cart](examples/screenshots/04_after_add_to_cart.png) |
 
-> **Result:** ❌ Bug reproduced — Orchid Mantis → Gold Tortoise substitution confirmed. Fix looks correct, merge after rebuild.
+> **Result:** Bug reproduced — Orchid Mantis to Gold Tortoise substitution confirmed.
+
+**Test mode** — Structured test with shareable report:
+
+> **Status:** Passed  |  **Report:** [View full report](https://app.revyl.ai/report/...)  |  **Test steps:** 5 blocks
 
 Full example with all screenshots: [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md)
 
@@ -52,14 +78,12 @@ Go to **Settings → Secrets and variables → Actions** and add:
 
 ### 3. Open a PR
 
-Make any change to `sample-app/` and open a pull request. Claude will:
-1. Build the app
-2. Upload it to Revyl
-3. Start a cloud device
-4. Validate your change with screenshots
-5. Post results as a PR comment
+Make any change to `sample-app/` and open a pull request.
 
-That's it. Three secrets, one workflow file.
+- **Interactive review** runs automatically on PR open
+- **E2E test review** runs when you comment `/test` on the PR
+
+That's it. Three secrets, one workflow file, two review modes.
 
 ## Try It Now
 
@@ -70,7 +94,10 @@ The sample app has an **intentional bug** you can use to test:
 // Adding "Orchid Mantis" (id:3) silently adds "Gold Tortoise" (id:4) instead
 ```
 
-Open a PR that "fixes" this bug — change `id === 3` back to the correct product. Claude will boot a device, add the Orchid Mantis to cart, and verify the fix actually works.
+Open a PR that "fixes" this bug — change `id === 3` back to the correct product.
+
+- **Interactive:** Claude boots a device, adds Orchid Mantis to cart, and catches the substitution
+- **Test:** Claude creates a test that validates cart contents after adding Orchid Mantis
 
 ## Customize for Your App
 
@@ -97,7 +124,7 @@ Delete `sample-app/` and add your own app source (or just point the build step a
     # npx react-native build-android --mode=debug
 ```
 
-### 2. Update CLAUDE.md
+### 2. Update CLAUDE.md and CLAUDE-test.md
 
 Tell Claude about your app's screens and navigation:
 
@@ -111,7 +138,7 @@ Tell Claude about your app's screens and navigation:
 Navigation: Bottom tabs (Dashboard, Activity, Settings). Login is shown when not authenticated.
 ```
 
-The more context you give Claude about your app, the better it navigates.
+The more context you give Claude about your app, the better it navigates (interactive) or designs tests (test mode).
 
 ### 3. Set your Revyl app ID
 
@@ -142,27 +169,36 @@ review:
 
 ```
 .github/workflows/review.yml   # GitHub Actions: build → upload → Claude reviews
-CLAUDE.md                       # Instructions for Claude (the brain of the bot)
+CLAUDE.md                       # Instructions for interactive mode (live device)
+CLAUDE-test.md                  # Instructions for test mode (YAML test → report)
 sample-app/                     # Bug Bazaar — demo React Native e-commerce app
 examples/
 └── sample-pr-comment.md        # What the PR comment looks like
 ```
 
-The entire review bot is **two files**: `review.yml` (the trigger) and `CLAUDE.md` (the instructions). Everything else is the sample app.
+The review bot is **three files**: `review.yml` (the trigger), `CLAUDE.md` (interactive instructions), and `CLAUDE-test.md` (test mode instructions). Everything else is the sample app.
 
 ## How the Revyl CLI Works
 
-The magic is in [Revyl's](https://revyl.ai) `--target` flag — it uses AI to resolve natural language descriptions to screen coordinates:
+**Interactive mode** uses AI-grounded device interaction:
 
 ```bash
-# These just work — no accessibility IDs, no XPaths, no element inspectors
+# Natural language targeting — no accessibility IDs, no XPaths
 revyl device tap --target "Add to Cart button"
 revyl device type --target "Search field" --text "beetles"
-revyl device tap --target "Checkout button"
 revyl device screenshot --out evidence.png
 ```
 
-This means Claude can navigate **any app** without knowing the UI hierarchy. It reads the screen, decides what to tap, and uses natural language to do it.
+**Test mode** uses structured YAML tests:
+
+```bash
+# Create and run an E2E test
+revyl test create my-test --from-file test.yaml --platform android --no-open
+revyl test run my-test --json --verbose
+revyl test share my-test  # → shareable report link
+```
+
+Both approaches use Revyl's cloud devices — no local emulators or physical devices needed.
 
 ## Built With
 
