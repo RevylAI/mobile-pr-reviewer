@@ -4,6 +4,8 @@
 
 AI-powered visual PR reviews for mobile apps. Claude boots a real cloud device for every PR, drives it through the screens your PR changed, and posts a single PR comment whose evidence is a link to the full session recording.
 
+![Mobile PR Reviewer demo — Claude catching the Orchid Mantis cart bug on a Pixel 7](examples/demo.gif)
+
 > Developer pushes a button-color change → GitHub Actions builds the app → Claude boots a phone in the cloud → drives through to the screen → posts a link to the recording in the PR. Cross-platform (iOS + Android in parallel) by default.
 
 ```
@@ -35,16 +37,21 @@ The default workflow runs both interactive jobs as a `[android, ios]` matrix, in
 
 ## Real recordings — the canonical Bug Bazaar demo
 
-The included sample app (`sample-app/`) is **Bug Bazaar**, a React Native e-commerce app with an intentional bug: adding "Orchid Mantis" silently swaps in "Gold Tortoise" at the cart layer. We exercised every cell of the matrix against a "fix" PR diff using a local harness — Claude reproduced the bug in all four cells and posted PR comments matching the new template.
+The included sample app (`sample-app/`) is **Bug Bazaar**, a React Native e-commerce app with an intentional bug: adding "Orchid Mantis" silently swaps in "Gold Tortoise" at the cart layer. We ran the new flow against every cell of the matrix using a local harness — Claude **caught the bug autonomously** in all four cells, with no harness hint about the build state.
 
 | | Structured (`CLAUDE.md`) | Reactive (`CLAUDE-reactive.md`) |
 |---|---|---|
-| **Android** | [session b9ef064b](https://app.revyl.ai/sessions/b9ef064b-949c-40c7-b3de-6e1a4d397963) — 4.6 min, $0.68, 24 tool calls | [session 93c81ba1](https://app.revyl.ai/sessions/93c81ba1-dbad-409f-b14f-67447ea8bd99) — 4.3 min, $0.45, 30 tool calls |
-| **iOS** | [session 7e5fb852](https://app.revyl.ai/sessions/7e5fb852-ca67-4111-9aa8-d7e9fc5815ec) — 7.2 min, $0.28, 20 tool calls | [session 8ad07bc2](https://app.revyl.ai/sessions/8ad07bc2-0aba-4026-a14d-15b80e355977) — 4.6 min, $0.49, 32 tool calls |
+| **Android** | [session 67fa9104](https://app.revyl.ai/sessions/67fa9104-3a87-4d38-ad9b-ed12d96cd5ee) — Pixel 7, 3:49, 7 timeline steps with a failing validation that catches the bug | [session 76a6daae](https://app.revyl.ai/sessions/76a6daae-0107-459c-b416-c38a58e1f4ae) — Pixel 7, 1:36, vision loop |
+| **iOS** | [session 74c6401b](https://app.revyl.ai/sessions/74c6401b-edbf-495d-ae2a-a297088c6241) — iPhone 17 Pro Max, 3:58, 9 timeline steps with failing validations | [session 2960f466](https://app.revyl.ai/sessions/2960f466-a49a-4321-9597-9262276a787f) — iPhone 17 Pro Max, 1:34, vision loop |
 
-Each link opens the device-session report: video recording, every step Claude issued, and the result of each step. Open one and you've seen the entire PR review without reading a line of text.
+The GIF above is the canonical Android structured run — you can watch Claude tap through Bug Bazaar, validate the cart contents against the PR's expected post-fix state, and the validation **fails** because the build still has the bug. That failed-validation step (red in the recording timeline) is the bug catch.
 
-> The structured iOS run survived a mid-session expiry (called `revyl device stop`, restarted via `revyl device start`, continued the test) without any human intervention. That's the durability you want from a PR review bot.
+**How autonomy works in each mode:**
+
+- **Structured mode** writes a `revyl device validation "The cart contains Orchid Mantis at $62.00"` step. Revyl's grounder evaluates the assertion against the live screen. Bug present → validation fails → red entry in the recording timeline → Claude posts ❌. Bug fixed → validation passes → green entry → Claude posts ✅. The recording itself is the audit trail; reviewers can scan it as text.
+- **Reactive mode** drives the device with `revyl device tap` / `screenshot` in a vision loop. The recording shows the video and a single "manual control" entry — no per-step timeline. Claude reads each screenshot, decides the next action, and writes the bug catch into the PR comment text. Lower latency, simpler code path, but the recording is less inspectable than structured mode.
+
+**Both modes pin the device to the build for that PR via `--build-version-id` and clean up with `revyl device stop --all` even on failure.**
 
 A full sample PR comment is in [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md).
 
