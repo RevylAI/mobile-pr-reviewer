@@ -2,133 +2,147 @@
 
 > Part of [Mobile DevTools](https://github.com/RevylAI/mobile-devtools) — open-source tools for mobile engineering teams.
 
-AI-powered visual PR reviews for mobile apps. Two modes:
+AI-powered visual PR reviews for mobile apps. Claude boots a real cloud device for every PR, drives it through the screens your PR changed, and posts a single PR comment whose evidence is a link to the full session recording.
 
-1. **Interactive** — Claude boots a cloud device, navigates to the changed screen, and posts screenshots
-2. **E2E Test** — Claude creates a YAML test from the diff, runs it on Revyl's platform, and posts a shareable report
-
-> Developer pushes a button color change → Claude boots a phone in the cloud → taps through to the screen → screenshots the result → posts it in the PR. Automatically.
-
-## How It Works
-
-### Mode 1: Interactive Review (default)
+> Developer pushes a button-color change → GitHub Actions builds the app → Claude boots a phone in the cloud → drives through to the screen → posts a link to the recording in the PR. Cross-platform (iOS + Android in parallel) by default.
 
 ```
-PR opened
-  → GitHub Actions builds the app
-  → Uploads build to Revyl cloud
-  → Claude Code Action triggers:
-      1. Reads the git diff
-      2. Figures out what screens changed
-      3. Starts a cloud device with the new build
-      4. Navigates to the changed screen using natural language
-         (e.g. revyl device tap --target "Add to Cart button")
-      5. Takes screenshots as evidence
-      6. Posts results as a PR comment
+┌─────────────┐    ┌────────────┐    ┌──────────────┐    ┌──────────────────┐
+│  PR opened  │ →  │  build job │ →  │ Claude review│ →  │ PR comment with  │
+│  on GitHub  │    │ (per OS)   │    │ on Revyl     │    │ recording link/s │
+└─────────────┘    └────────────┘    └──────────────┘    └──────────────────┘
 ```
 
-Triggered automatically on PR open, or re-trigger with a `/review` comment.
+---
 
-### Mode 2: E2E Test Review
+## What it does
 
-```
-Comment "/test" on a PR
-  → Claude Code Action triggers:
-      1. Reads the git diff
-      2. Creates a YAML E2E test definition targeting the changed flows
-      3. Pushes the test to Revyl's cloud platform
-      4. Runs the test against the latest uploaded build
-      5. Generates a shareable report link
-      6. Posts results with the report link as a PR comment
-```
+Mobile PR Reviewer ships **three review modes**. You can run any combination — they're three independent jobs in the workflow file. Each job is opt-in or opt-out via straight YAML editing, no DSL.
 
-Triggered by commenting `/test` on a PR (requires a build from a prior PR push).
+| Mode | Trigger | What Claude does | When to use it |
+|---|---|---|---|
+| **Reactive** (mode 1, default) | Auto on PR open · re-run with `/review` | Drives the device with a vision loop: `screenshot → decide → tap/swipe → screenshot → …`. Pure raw device commands. | Default for most apps. Maximum control, faithful to what was actually clicked. |
+| **Structured** (mode 1, opt-in) | `/review-structured` comment | Drives the device with high-level `revyl device instruction` / `validation` primitives so the recording timeline reads as named natural-language steps. | When the recording's step timeline matters more than raw control. Slightly higher per-step latency but cleaner for human reviewers to skim. |
+| **E2E Test** (mode 2) | `/test` comment | Designs a focused YAML E2E test from the diff, creates it on Revyl, runs it on the latest uploaded build, posts the report link. | When you want a structured test artifact you can re-run later. |
 
-### Example PR Comments
+All three modes produce the same shape of PR comment: short summary → **single link** to the Revyl session/report. No embedded screenshots, no comparison tables — the recording is the entire audit trail.
 
-**Interactive mode** — Screenshots from a live device session:
+### Cross-platform by default
 
-| Orchid Mantis product page ($62.00) | Bug: Cart shows Gold Tortoise ($18.00) |
-|---|---|
-| ![Orchid Mantis detail](examples/screenshots/03_orchid_mantis_detail.png) | ![Wrong product in cart](examples/screenshots/04_after_add_to_cart.png) |
+The default workflow runs both interactive jobs as a `[android, ios]` matrix, in parallel. So a single PR open triggers two cloud-device runs (one Android, one iOS), each posting its own PR comment with its own recording. Drop a platform by editing one line.
 
-> **Result:** Bug reproduced — Orchid Mantis to Gold Tortoise substitution confirmed.
+---
 
-**Test mode** — Claude creates a 5-step E2E test from the diff, runs it on an iPhone 16, and catches the cart substitution bug:
+## Real recordings — the canonical Bug Bazaar demo
 
-> **Status:** Failed (bug caught)  |  **Report:** [View full report](https://app.revyl.ai/tests/report?taskId=4028df46-5cce-410c-bbe2-e40a6d42657d)  |  **Test steps:** 5 blocks
+The included sample app (`sample-app/`) is **Bug Bazaar**, a React Native e-commerce app with an intentional bug: adding "Orchid Mantis" silently swaps in "Gold Tortoise" at the cart layer. We exercised every cell of the matrix against a "fix" PR diff using a local harness — Claude reproduced the bug in all four cells and posted PR comments matching the new template.
 
-The test validated the shop screen, scrolled to Orchid Mantis, confirmed the product detail page, tapped ADD TO CART, then caught the bug — the cart showed "Gold Tortoise" at $36.00 instead of "Orchid Mantis" at $62.00.
+| | Structured (`CLAUDE.md`) | Reactive (`CLAUDE-reactive.md`) |
+|---|---|---|
+| **Android** | [session b9ef064b](https://app.revyl.ai/sessions/b9ef064b-949c-40c7-b3de-6e1a4d397963) — 4.6 min, $0.68, 24 tool calls | [session 93c81ba1](https://app.revyl.ai/sessions/93c81ba1-dbad-409f-b14f-67447ea8bd99) — 4.3 min, $0.45, 30 tool calls |
+| **iOS** | [session 7e5fb852](https://app.revyl.ai/sessions/7e5fb852-ca67-4111-9aa8-d7e9fc5815ec) — 7.2 min, $0.28, 20 tool calls | [session 8ad07bc2](https://app.revyl.ai/sessions/8ad07bc2-0aba-4026-a14d-15b80e355977) — 4.6 min, $0.49, 32 tool calls |
 
-Full interactive mode example with screenshots: [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md)
+Each link opens the device-session report: video recording, every step Claude issued, and the result of each step. Open one and you've seen the entire PR review without reading a line of text.
+
+> The structured iOS run survived a mid-session expiry (called `revyl device stop`, restarted via `revyl device start`, continued the test) without any human intervention. That's the durability you want from a PR review bot.
+
+A full sample PR comment is in [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md).
+
+---
 
 ## Setup (5 minutes)
 
 ### 1. Fork this repo
 
-Click **Fork** and clone it. The `sample-app/` directory contains [Bug Bazaar](sample-app/), a React Native e-commerce app you can use to test immediately.
+Click **Fork** and clone it. The `sample-app/` directory contains Bug Bazaar — it builds out of the box and has a real bug you can demo against.
 
-### 2. Add 3 secrets
+### 2. Add 5 secrets
 
 Go to **Settings → Secrets and variables → Actions** and add:
 
-| Secret | Where to get it |
-|--------|----------------|
-| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) |
-| `REVYL_API_KEY` | [app.revyl.ai](https://app.revyl.ai) → Settings → API Keys |
-| `REVYL_APP_ID` | Run `revyl app create --name "my-app" --platform android --json` |
+| Secret | Where to get it | Required for |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) | All modes |
+| `REVYL_API_KEY` | [app.revyl.ai](https://app.revyl.ai) → Settings → API Keys | All modes |
+| `REVYL_APP_ID_ANDROID` | `revyl app create --name "myapp-android" --platform android --json` | Android matrix cells |
+| `REVYL_APP_ID_IOS` | `revyl app create --name "myapp-ios" --platform ios --json` | iOS matrix cells |
+| `EXPO_TOKEN` | [expo.dev](https://expo.dev) → Personal Access Tokens | The bundled sample app's Expo build only — not needed if you replace `sample-app/` with your own build step |
+
+If you only support one platform, set only that platform's `REVYL_APP_ID_*` secret and drop the other from the workflow matrix (one line edit, see "Customize" below).
 
 ### 3. Open a PR
 
-Make any change to `sample-app/` and open a pull request.
+Make any change to `sample-app/` (or your own app source) and open a pull request.
 
-- **Interactive review** runs automatically on PR open
-- **E2E test review** runs when you comment `/test` on the PR
+- The default reactive review fires automatically on PR open across both platforms.
+- Re-trigger with `/review` (collaborators only).
+- Try the structured mode with `/review-structured`.
+- Try the E2E test mode with `/test` (after at least one prior PR push has uploaded a build).
 
-That's it. Three secrets, one workflow file, two review modes.
+That's it. Five secrets, one workflow file, three review modes.
+
+---
 
 ## Try It Now
 
-The sample app has an **intentional bug** you can use to test:
+The sample app has an **intentional bug** in `sample-app/context/CartContext.tsx`:
 
 ```tsx
-// sample-app/context/CartContext.tsx line 38-39
 // Adding "Orchid Mantis" (id:3) silently adds "Gold Tortoise" (id:4) instead
+const actualProduct = product.id === 3
+  ? allProducts.find(p => p.id === 4)!
+  : product;
 ```
 
-Open a PR that "fixes" this bug — change `id === 3` back to the correct product.
+Open a PR that "fixes" this by removing the substitution and using `product` directly.
 
-- **Interactive:** Claude boots a device, adds Orchid Mantis to cart, and catches the substitution
-- **Test:** Claude creates a test that validates cart contents after adding Orchid Mantis
+- **Reactive** (default): Claude boots both Android and iOS, navigates to Orchid Mantis, taps ADD TO CART, opens the cart, and reproduces the swap bug on whichever build still has it.
+- **Structured** (`/review-structured`): same flow but the recording timeline reads as named steps.
+- **Test** (`/test`): Claude creates a YAML test that asserts the cart contents.
 
-## Customize for Your App
+---
 
-This repo is a template. To use it with your own mobile app:
+## Customize for your app
 
-### 1. Replace the sample app
+The whole template is **one workflow file + three CLAUDE markdown files + one sample app**. Editing it is straightforward:
 
-Delete `sample-app/` and add your own app source (or just point the build step at your existing CI):
+### Pick which modes / platforms run
+
+`.github/workflows/review.yml` has three review jobs (`review-reactive`, `review-structured`, `test-review`) plus one `build` job. Each has a clearly-marked `strategy.matrix.platform` you can edit:
 
 ```yaml
-# .github/workflows/review.yml — customize the build step
-- name: Build app
-  run: |
-    # Gradle (Android)
-    ./gradlew assembleDebug
-
-    # Xcode (iOS)
-    # xcodebuild -scheme MyApp -sdk iphonesimulator -configuration Debug
-
-    # Flutter
-    # flutter build apk --debug
-
-    # React Native
-    # npx react-native build-android --mode=debug
+strategy:
+  matrix:
+    platform: [android, ios]   # ← drop one to skip a platform
 ```
 
-### 2. Update CLAUDE.md and CLAUDE-test.md
+To **disable a mode entirely**, delete its job. To **flip the default mode-1 flavor** to structured, swap the `if:` blocks between `review-reactive` and `review-structured` so the structured one fires on `pull_request`.
 
-Tell Claude about your app's screens and navigation:
+### Replace the sample app
+
+Delete `sample-app/` and add your own app source, or point the build step at your existing CI artifact. The build step in `review.yml` is the only thing that needs to know how to produce a binary:
+
+```yaml
+- name: Build app
+  run: |
+    if [ "${{ matrix.platform }}" = "android" ]; then
+      ./gradlew assembleDebug
+    else
+      xcodebuild -scheme MyApp -sdk iphonesimulator -configuration Debug
+    fi
+```
+
+If you already have CI that builds your app, you can drop the build job entirely and download the artifact in each review job:
+
+```yaml
+- uses: actions/download-artifact@v4
+  with:
+    name: my-app-${{ matrix.platform }}-build
+```
+
+### Update the CLAUDE files
+
+Tell Claude about your app's screens. Each file has a clearly-labelled "Demo hint — delete this section when you adapt this template" block at the bottom that you replace with your own context:
 
 ```markdown
 ## Your App
@@ -140,71 +154,98 @@ Tell Claude about your app's screens and navigation:
 Navigation: Bottom tabs (Dashboard, Activity, Settings). Login is shown when not authenticated.
 ```
 
-The more context you give Claude about your app, the better it navigates (interactive) or designs tests (test mode).
+The more domain context you give Claude, the more confidently it navigates and the cleaner the recordings.
 
-### 3. Set your Revyl app ID
+### Switch to a different model
 
-```bash
-# Create your app on Revyl
-revyl app create --name "MyApp" --platform android --json
+Each Claude job uses `claude_args: --model claude-sonnet-4-5`. Swap to `claude-opus-4-6` for harder reviews (slower, more expensive, smarter), or `claude-haiku-4-5` for cheaper smoke tests.
 
-# Add the returned ID as REVYL_APP_ID secret
-```
-
-### 4. (Optional) Use with existing CI
-
-If you already have CI that builds your app, skip the build job and just download the artifact:
-
-```yaml
-review:
-  # Remove the "needs: build" line
-  steps:
-    # Download from your existing build pipeline
-    - uses: actions/download-artifact@v4
-      with:
-        name: my-app-build
-        path: build/
-    # ... rest of review job
-```
+---
 
 ## Architecture
 
 ```
-.github/workflows/review.yml   # GitHub Actions: build → upload → Claude reviews
-CLAUDE.md                       # Instructions for interactive mode (live device)
-CLAUDE-test.md                  # Instructions for test mode (YAML test → report)
-sample-app/                     # Bug Bazaar — demo React Native e-commerce app
+.github/workflows/review.yml    # GitHub Actions: build → 3 independent review jobs
+CLAUDE.md                        # Mode 1 STRUCTURED instructions (opt-in)
+CLAUDE-reactive.md               # Mode 1 REACTIVE instructions (default)
+CLAUDE-test.md                   # Mode 2 instructions (E2E YAML test)
+sample-app/                      # Bug Bazaar — demo React Native e-commerce app
 examples/
-└── sample-pr-comment.md        # What the PR comment looks like
+└── sample-pr-comment.md         # Real PR comment from a local harness run
 ```
 
-The review bot is **three files**: `review.yml` (the trigger), `CLAUDE.md` (interactive instructions), and `CLAUDE-test.md` (test mode instructions). Everything else is the sample app.
+The review bot is **four files**: `review.yml` (the trigger + build), `CLAUDE.md`, `CLAUDE-reactive.md`, and `CLAUDE-test.md`. Everything else is the sample app.
 
-## How the Revyl CLI Works
+### How a PR open flows through the workflow
 
-**Interactive mode** uses AI-grounded device interaction:
+```
+PR opened
+   │
+   ├─ build job (matrix: android, ios)
+   │     ├─ npm ci sample-app
+   │     ├─ eas-cli build --local --platform <android|ios>
+   │     ├─ revyl build upload --json → captures build_version_id
+   │     └─ exports per-platform build_version_id as job output
+   │
+   └─ review-reactive job (matrix: android, ios) — needs: build
+         ├─ resolves PR base ref via gh api
+         ├─ reads CLAUDE-reactive.md
+         ├─ revyl device start --platform <p> --build-version-id <id>
+         ├─ vision loop: screenshot → tap → screenshot → …
+         ├─ revyl device stop --all
+         └─ posts PR comment with https://app.revyl.ai/sessions/<id>
+```
+
+Comment-triggered flows (`/review`, `/review-structured`, `/test`) skip the build job entirely and reuse the latest uploaded build for that app.
+
+### Security
+
+- The `/review`, `/review-structured`, and `/test` comment triggers are gated to `OWNER` / `MEMBER` / `COLLABORATOR` (`author_association` check). External commenters on a public fork cannot burn API credits.
+- PR-open trigger runs on `pull_request` events from same-repo branches. Forks pulling against this template don't get the secrets — GitHub strips them by default for fork PRs, so the build job will fail loudly rather than leaking credentials.
+- Newer commits / comments cancel in-flight runs via `concurrency:` so a long-running session doesn't block the next push.
+
+---
+
+## How the Revyl CLI works
+
+The core primitives the workflow / CLAUDE files use:
 
 ```bash
-# Natural language targeting — no accessibility IDs, no XPaths
-revyl device tap --target "Add to Cart button"
-revyl device type --target "Search field" --text "beetles"
-revyl device screenshot --out evidence.png
+# Start a cloud device pinned to a specific build
+revyl device start --platform <android|ios> \
+                   --app-id "$REVYL_APP_ID" \
+                   --build-version-id "$REVYL_BUILD_VERSION_ID" \
+                   --json
+
+# REACTIVE primitives (used by CLAUDE-reactive.md)
+revyl device screenshot --out /tmp/screen.png
+revyl device tap        --target "Add to Cart button" --json
+revyl device swipe      --direction up --json
+revyl device type       --target "Search field" --text "beetles" --json
+
+# STRUCTURED primitives (used by CLAUDE.md)
+revyl device instruction "Tap the Add to Cart button" --json
+revyl device validation  "The cart contains Orchid Mantis at \$62.00" --json
+revyl device extract     "the order total" --json
+
+# Always clean up
+revyl device stop --all --json
 ```
 
-**Test mode** uses structured YAML tests:
+For **mode 2** (E2E test):
 
 ```bash
-# Create and run an E2E test
-revyl test create my-test --from-file test.yaml --platform android --no-open
-revyl test run my-test --json --verbose
-revyl test share my-test  # → shareable report link
+revyl test create my-test --from-file test.yaml --platform android --app "$REVYL_APP_ID" --no-open --force --json
+revyl test run    my-test --json --verbose   # → output includes report_link directly
 ```
 
-Both approaches use Revyl's cloud devices — no local emulators or physical devices needed.
+Both modes use Revyl's cloud devices — no local emulators or physical devices needed.
+
+---
 
 ## Built With
 
-- [Revyl CLI](https://github.com/RevylAI/revyl-cli) — Cloud device provisioning and AI-grounded interaction
+- [Revyl CLI](https://github.com/RevylAI/revyl-cli) — Cloud device provisioning, AI-grounded interaction, session recordings
 - [Claude Code Action](https://github.com/anthropics/claude-code-action) — Run Claude Code in GitHub Actions
 - [Expo](https://expo.dev) — React Native framework (sample app)
 
