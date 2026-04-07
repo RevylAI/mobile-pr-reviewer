@@ -1,6 +1,6 @@
 # Sample PR Comments
 
-These are real PR comments mobile-pr-reviewer produced on local harness runs against the included Bug Bazaar sample app, on real Revyl cloud devices. The Orchid Mantis bug is intentional in `sample-app/context/CartContext.tsx`.
+These are real PR comments mobile-pr-reviewer produced on local harness runs against the included Bug Bazaar sample app, on Revyl cloud simulators. The Orchid Mantis bug is intentional in `sample-app/context/CartContext.tsx`.
 
 **The harness ran with no hint about the build state.** Claude read the diff, formed its own hypothesis ("the fix means the cart should contain Orchid Mantis at $62.00 after tapping ADD TO CART"), drove the device through the reactive loop in `CLAUDE.md`, and reported what it observed. Both runs **caught the bug autonomously** — the build still has the swap, the cart shows Gold Tortoise instead of Orchid Mantis, Claude reported ❌.
 
@@ -28,7 +28,7 @@ The session recordings are the entire audit trail. No screenshots in the comment
 
 **Session recording:** [View full recording](https://app.revyl.ai/sessions/76a6daae-0107-459c-b416-c38a58e1f4ae)
 
-_Tested on Revyl Pixel 7 cloud device · Android_
+_Tested on Revyl Pixel 7 cloud simulator · Android_
 ```
 
 **Recording:** Pixel 7, 1:36 device session. The animated GIF at the top of the README is a 2× speedup of this exact session. Open the link to watch the full video and see every action Claude took.
@@ -55,7 +55,7 @@ _Tested on Revyl Pixel 7 cloud device · Android_
 
 **Session recording:** [View full recording](https://app.revyl.ai/sessions/2960f466-a49a-4321-9597-9262276a787f)
 
-_Tested on Revyl iPhone 17 Pro Max cloud device · iOS_
+_Tested on Revyl iPhone 17 Pro Max cloud simulator · iOS_
 ```
 
 **Recording:** iPhone 17 Pro Max, 1:34 device session. Same shape as the Android run, same autonomous bug catch — but on iOS this time, in parallel during the same matrix workflow run.

@@ -11,7 +11,7 @@ You don't write a test here. You don't design YAML. You take an existing test or
   - `revyl test run <name> --json --verbose` — run a Revyl test by name
   - `revyl workflow run <name> --json` — run a Revyl workflow by name
 
-That's the whole tool surface. There is no device session here, no `revyl device start` — Revyl's test runner provisions its own device.
+That's the whole tool surface. There is no device session here, no `revyl device start` — Revyl's test runner provisions its own simulator.
 
 ## Environment
 
