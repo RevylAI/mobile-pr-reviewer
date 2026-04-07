@@ -74,12 +74,6 @@ Then edit the bottom of `CLAUDE.md` (the "Demo hint" section) to describe your s
 
 To swap models, edit `claude_args: --model claude-sonnet-4-5` in the workflow. `claude-opus-4-6` for harder reviews, `claude-haiku-4-5` for cheaper smoke tests.
 
-## Security
-
-- `/review` and `/test` comment triggers are gated to `OWNER` / `MEMBER` / `COLLABORATOR` via `author_association`. External commenters can't burn API credits.
-- Forks pulling against this template don't get the secrets — GitHub strips them by default for fork PRs. The build job will fail loudly rather than leak.
-- `concurrency:` cancels in-flight runs when newer commits land.
-
 ## License
 
 MIT
