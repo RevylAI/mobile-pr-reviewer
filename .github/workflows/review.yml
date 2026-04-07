@@ -5,12 +5,23 @@ on:
   issue_comment:
     types: [created]
 
+# Newer commits / comments on the same PR cancel in-flight runs.
+concurrency:
+  group: mobile-pr-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
+  # ------------------------------------------------------------------
+  # Build the app and upload it to Revyl. Runs on every pull_request
+  # event. Captures the Revyl build_version_id so downstream jobs can
+  # pin the exact build (no cross-PR races).
+  # ------------------------------------------------------------------
   build:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
-      build-path: ${{ steps.build.outputs.path }}
+      build_version_id: ${{ steps.upload.outputs.build_version_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -18,125 +29,199 @@ jobs:
         with:
           node-version: 20
 
-      # Install dependencies
       - name: Install dependencies
         working-directory: sample-app
         run: npm ci
 
-      # Build the app
-      # NOTE: Customize this step for your build system (Gradle, Xcode, Flutter, etc.)
+      # Customize this step for your build system (Gradle, Xcode, Flutter, etc.).
       - name: Build app
-        id: build
         working-directory: sample-app
         run: |
-          npx --yes eas-cli build --platform android --profile preview --local --output build/app.apk --non-interactive
-          echo "path=sample-app/build/app.apk" >> "$GITHUB_OUTPUT"
+          npx --yes eas-cli build \
+            --platform android \
+            --profile preview \
+            --local \
+            --output build/app.apk \
+            --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: app-build
-          path: sample-app/build/app.apk
-
-  # Mode 1: Interactive Review (auto on PR, re-trigger with /review comment)
-  # Claude boots a live cloud device, navigates to changed screens, and posts screenshots
-  review:
-    needs: build
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: app-build
-          path: build/
-
-      # Install Revyl CLI
       - name: Install Revyl CLI
         run: pip install revyl
 
-      # Upload build to Revyl
-      - name: Upload build to Revyl
+      - name: Upload build to Revyl (capture build_version_id)
+        id: upload
         run: |
-          revyl build upload \
+          set -euo pipefail
+          out=$(revyl build upload \
             --skip-build \
             --platform android \
             --app "$REVYL_APP_ID" \
-            --file build/app.apk \
-            --json --yes
+            --file sample-app/build/app.apk \
+            --json --yes)
+          echo "$out"
+          bid=$(echo "$out" | jq -r '.builds[0].build_id // .build.build_id // empty')
+          if [ -z "$bid" ]; then
+            echo "::error::Failed to extract build_version_id from revyl build upload output"
+            exit 1
+          fi
+          echo "build_version_id=$bid" >> "$GITHUB_OUTPUT"
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
           REVYL_APP_ID: ${{ secrets.REVYL_APP_ID }}
 
-      # Claude reviews the PR on a live device
-      - uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: claude-sonnet-4-20250514
-          trigger_phrase: "/review"
-          direct_prompt: |
-            You are a mobile PR review bot. Read CLAUDE.md for your full instructions.
-
-            The app build has been uploaded to Revyl (app ID: ${{ secrets.REVYL_APP_ID }}).
-            Use the revyl CLI to start a device, validate the PR changes, and report back.
-
-            The revyl CLI is already installed and REVYL_API_KEY is set in the environment.
-          allowed_tools: "Bash,Read,Glob,Grep,Write"
-        env:
-          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-          REVYL_APP_ID: ${{ secrets.REVYL_APP_ID }}
-
-  # Mode 2: E2E Test Review (trigger with /test comment)
-  # Claude creates a YAML test from the diff, runs it on Revyl, and posts the report link
-  test-review:
-    if: >
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/test')
+  # ------------------------------------------------------------------
+  # Mode 1: Interactive review.
+  # Auto-triggers on PR open/sync/reopen.
+  # Re-triggers when a trusted collaborator comments "/review".
+  # Claude boots a live cloud device, drives it with natural-language
+  # instruction / validation steps, and posts a PR comment whose main
+  # evidence is the session recording link (no screenshots).
+  # ------------------------------------------------------------------
+  review:
+    needs: build
+    if: |
+      github.event_name == 'pull_request' || (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        startsWith(github.event.comment.body, '/review') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
       issues: write
+    env:
+      REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+      REVYL_APP_ID: ${{ secrets.REVYL_APP_ID }}
+      REVYL_BUILD_VERSION_ID: ${{ needs.build.outputs.build_version_id }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Checkout the PR branch for accurate diff analysis
+      - name: Checkout PR branch (comment-triggered re-review)
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr checkout ${{ github.event.issue.number }}
+
+      - name: Resolve PR base ref (for comment trigger)
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=$(gh pr view ${{ github.event.issue.number }} --json baseRefName -q .baseRefName)
+          echo "PR_BASE_REF=$base" >> "$GITHUB_ENV"
+          git fetch origin "$base":"refs/remotes/origin/$base" --depth=50 || true
+
+      - name: Install Revyl CLI
+        run: pip install revyl
+
+      - name: Claude PR review (live device)
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: "/review"
+          prompt: |
+            You are a mobile PR review bot in INTERACTIVE mode. Read CLAUDE.md for full instructions.
+
+            Environment variables already set for you:
+              REVYL_API_KEY            — Revyl auth
+              REVYL_APP_ID             — the Revyl app to run against
+              REVYL_BUILD_VERSION_ID   — the exact build uploaded for this PR (pin with --build-version-id)
+              PR_BASE_REF              — the PR's base branch (use for diffs, never hardcode "main")
+
+            Goal:
+              1. Diff the PR against origin/$PR_BASE_REF and figure out what UI changed.
+              2. Start a Revyl cloud device pinned to $REVYL_BUILD_VERSION_ID.
+              3. Drive the device with `revyl device instruction` and `revyl device validation`
+                 (NOT raw taps) so the session report timeline is meaningful.
+              4. Post a concise PR comment whose ONLY evidence is the session report link:
+                 https://app.revyl.ai/sessions/<session_id>
+                 (parse session_id from `revyl device start --json`).
+              5. Always run `revyl device stop --all --json` at the end.
+
+            Do NOT embed screenshots in the PR comment. The session recording is the evidence.
+          claude_args: >-
+            --model claude-sonnet-4-5
+            --allowed-tools "Bash Read Glob Grep Write"
+
+      - name: Cleanup device sessions
+        if: always()
+        run: revyl device stop --all --json || true
+
+  # ------------------------------------------------------------------
+  # Mode 2: E2E test review.
+  # Triggers when a trusted collaborator comments "/test" on a PR.
+  # Claude designs a YAML test from the diff, runs it on Revyl's
+  # cloud platform, and posts the shareable report link.
+  # Requires a build to have been uploaded by a prior PR push.
+  # ------------------------------------------------------------------
+  test-review:
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request != null &&
+      startsWith(github.event.comment.body, '/test') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+      REVYL_APP_ID: ${{ secrets.REVYL_APP_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Checkout PR branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh pr checkout ${{ github.event.issue.number }}
 
-      # Install Revyl CLI
+      - name: Resolve PR base ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=$(gh pr view ${{ github.event.issue.number }} --json baseRefName -q .baseRefName)
+          echo "PR_BASE_REF=$base" >> "$GITHUB_ENV"
+          git fetch origin "$base":"refs/remotes/origin/$base" --depth=50 || true
+
       - name: Install Revyl CLI
         run: pip install revyl
 
-      # Claude creates an E2E test, runs it, and shares the report
-      - uses: anthropics/claude-code-action@v1
+      - name: Claude PR review (E2E test)
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: claude-sonnet-4-20250514
           trigger_phrase: "/test"
-          direct_prompt: |
-            You are a mobile PR review bot in TEST MODE. Read CLAUDE-test.md for your full instructions.
+          prompt: |
+            You are a mobile PR review bot in TEST mode. Read CLAUDE-test.md for full instructions.
 
-            The app build has already been uploaded to Revyl (app ID: ${{ secrets.REVYL_APP_ID }}).
-            Create an E2E test based on the PR diff, run it on Revyl's cloud platform,
-            and post the shareable report link.
+            Environment variables already set for you:
+              REVYL_API_KEY  — Revyl auth
+              REVYL_APP_ID   — the Revyl app to target
+              PR_BASE_REF    — the PR's base branch (use for diffs, never hardcode "main")
 
-            The revyl CLI is already installed and REVYL_API_KEY is set in the environment.
-            Run revyl commands from the sample-app/ directory.
-          allowed_tools: "Bash,Read,Glob,Grep,Write"
-        env:
-          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-          REVYL_APP_ID: ${{ secrets.REVYL_APP_ID }}
+            This path does NOT upload a build. If no build exists yet for this app, stop early
+            and post a helpful comment telling the author to push a commit to the PR first
+            (that runs the build job). Check with:
+              revyl build list --app "$REVYL_APP_ID" --json
+
+            Goal:
+              1. Diff the PR against origin/$PR_BASE_REF and design a focused YAML E2E test.
+              2. `revyl test create pr-review --from-file sample-app/.revyl/tests/pr-review.yaml \
+                                              --platform android --app "$REVYL_APP_ID" \
+                                              --no-open --force --json`
+              3. `revyl test run pr-review --json --verbose` and parse `report_link` from the JSON.
+              4. Post a concise PR comment whose main evidence is that `report_link`.
+          claude_args: >-
+            --model claude-sonnet-4-5
+            --allowed-tools "Bash Read Glob Grep Write"

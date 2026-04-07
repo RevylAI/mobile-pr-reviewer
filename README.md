@@ -4,10 +4,10 @@
 
 AI-powered visual PR reviews for mobile apps. Two modes:
 
-1. **Interactive** — Claude boots a cloud device, navigates to the changed screen, and posts screenshots
-2. **E2E Test** — Claude creates a YAML test from the diff, runs it on Revyl's platform, and posts a shareable report
+1. **Interactive** — Claude boots a cloud device, drives it with natural-language steps, and posts a link to the session recording
+2. **E2E Test** — Claude creates a YAML test from the diff, runs it on Revyl's platform, and posts a shareable report link
 
-> Developer pushes a button color change → Claude boots a phone in the cloud → taps through to the screen → screenshots the result → posts it in the PR. Automatically.
+> Developer pushes a button color change → Claude boots a phone in the cloud → drives through to the screen → posts a link to the full recording and step timeline in the PR. Automatically.
 
 ## How It Works
 
@@ -16,18 +16,19 @@ AI-powered visual PR reviews for mobile apps. Two modes:
 ```
 PR opened
   → GitHub Actions builds the app
-  → Uploads build to Revyl cloud
+  → Uploads build to Revyl cloud (captures build_version_id for this PR)
   → Claude Code Action triggers:
-      1. Reads the git diff
+      1. Reads the git diff against the PR's base branch
       2. Figures out what screens changed
-      3. Starts a cloud device with the new build
-      4. Navigates to the changed screen using natural language
-         (e.g. revyl device tap --target "Add to Cart button")
-      5. Takes screenshots as evidence
-      6. Posts results as a PR comment
+      3. Starts a cloud device pinned to this PR's build
+      4. Drives the device with natural language
+         (revyl device instruction "Tap the Add to Cart button")
+      5. Posts a PR comment with the session recording link
 ```
 
-Triggered automatically on PR open, or re-trigger with a `/review` comment.
+Triggered automatically on PR open. Re-trigger by commenting `/review` on the PR (repo collaborators only).
+
+**Evidence is the session recording**, not screenshots. The recording includes the video of the device, every step Claude issued, and the result of each step — so reviewers get the full audit trail from a single link (`https://app.revyl.ai/sessions/<session_id>`).
 
 ### Mode 2: E2E Test Review
 
@@ -46,21 +47,19 @@ Triggered by commenting `/test` on a PR (requires a build from a prior PR push).
 
 ### Example PR Comments
 
-**Interactive mode** — Screenshots from a live device session:
+**Interactive mode** — a single recording link as evidence:
 
-| Orchid Mantis product page ($62.00) | Bug: Cart shows Gold Tortoise ($18.00) |
-|---|---|
-| ![Orchid Mantis detail](examples/screenshots/03_orchid_mantis_detail.png) | ![Wrong product in cart](examples/screenshots/04_after_add_to_cart.png) |
+> **Result:** ❌ Bug reproduced — Orchid Mantis → Gold Tortoise substitution confirmed.
+>
+> **Session recording:** [View full recording and step timeline](https://app.revyl.ai/sessions/sess_abc123)
 
-> **Result:** Bug reproduced — Orchid Mantis to Gold Tortoise substitution confirmed.
+The recording includes the video of the device, every step Claude issued (`instruction: Tap the Orchid Mantis card`, `validation: The cart contains Orchid Mantis at $62.00`, …), and the result of each step. One click, full audit trail.
 
-**Test mode** — Claude creates a 5-step E2E test from the diff, runs it on an iPhone 16, and catches the cart substitution bug:
+**Test mode** — Claude creates a focused E2E test from the diff, runs it on a cloud device, and catches the cart substitution bug:
 
-> **Status:** Failed (bug caught)  |  **Report:** [View full report](https://app.revyl.ai/tests/report?taskId=4028df46-5cce-410c-bbe2-e40a6d42657d)  |  **Test steps:** 5 blocks
+> **Status:** ❌ Failed (bug caught)  |  **Report:** [View full report](https://app.revyl.ai/tests/report?taskId=4028df46-5cce-410c-bbe2-e40a6d42657d)  |  **Test steps:** 5 blocks
 
-The test validated the shop screen, scrolled to Orchid Mantis, confirmed the product detail page, tapped ADD TO CART, then caught the bug — the cart showed "Gold Tortoise" at $36.00 instead of "Orchid Mantis" at $62.00.
-
-Full interactive mode example with screenshots: [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md)
+Full interactive mode example: [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md)
 
 ## Setup (5 minutes)
 
@@ -182,13 +181,19 @@ The review bot is **three files**: `review.yml` (the trigger), `CLAUDE.md` (inte
 
 ## How the Revyl CLI Works
 
-**Interactive mode** uses AI-grounded device interaction:
+**Interactive mode** uses natural-language live steps. Each step is recorded to the session timeline so a single link in the PR comment is a full audit trail:
 
 ```bash
-# Natural language targeting — no accessibility IDs, no XPaths
-revyl device tap --target "Add to Cart button"
-revyl device type --target "Search field" --text "beetles"
-revyl device screenshot --out evidence.png
+# Start a device pinned to the PR's build
+revyl device start --platform android --app-id "$REVYL_APP_ID" \
+                   --build-version-id "$REVYL_BUILD_VERSION_ID" --json
+
+# Drive with high-level primitives — these show up as structured blocks in the recording
+revyl device instruction "Tap the Add to Cart button" --json
+revyl device validation  "The cart shows Orchid Mantis at \$62.00" --json
+
+# Clean up
+revyl device stop --all --json
 ```
 
 **Test mode** uses structured YAML tests:
