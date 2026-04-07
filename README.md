@@ -2,11 +2,11 @@
 
 > Part of [Mobile DevTools](https://github.com/RevylAI/mobile-devtools) — open-source tools for mobile engineering teams.
 
-AI-powered visual PR reviews for mobile apps. Claude boots a real cloud device for every PR, drives it through the screens your PR changed, and posts a single PR comment whose evidence is a link to the full session recording.
+AI-powered visual PR reviews for mobile apps. Claude boots a real cloud device for every PR, **drives it like a human user using the Revyl CLI** — `tap`, `swipe`, `screenshot`, look at the screen, decide what to do next — and posts a single PR comment whose evidence is a link to the full session recording.
 
 ![Mobile PR Reviewer demo — Claude catching the Orchid Mantis cart bug on a Pixel 7](examples/demo.gif)
 
-> Developer pushes a button-color change → GitHub Actions builds the app → Claude boots a phone in the cloud → drives through to the screen → posts a link to the recording in the PR. Cross-platform (iOS + Android in parallel) by default.
+> Developer pushes a button-color change → GitHub Actions builds the app → Claude boots a phone in the cloud → reactively taps through to the screen → posts a link to the recording in the PR. Cross-platform (iOS + Android in parallel) by default.
 
 ```
 ┌─────────────┐    ┌────────────┐    ┌──────────────┐    ┌──────────────────┐
@@ -19,41 +19,41 @@ AI-powered visual PR reviews for mobile apps. Claude boots a real cloud device f
 
 ## What it does
 
-Mobile PR Reviewer ships **three review modes**. You can run any combination — they're three independent jobs in the workflow file. Each job is opt-in or opt-out via straight YAML editing, no DSL.
+The whole repo is built around one idea: **Claude uses the Revyl CLI to drive a real cloud device, and analyzes what it sees from the screenshots itself**. No high-level test planner, no YAML, no DSL. Claude is the planner.
 
-| Mode | Trigger | What Claude does | When to use it |
-|---|---|---|---|
-| **Reactive** (mode 1, default) | Auto on PR open · re-run with `/review` | Drives the device with a vision loop: `screenshot → decide → tap/swipe → screenshot → …`. Pure raw device commands. | Default for most apps. Maximum control, faithful to what was actually clicked. |
-| **Structured** (mode 1, opt-in) | `/review-structured` comment | Drives the device with high-level `revyl device instruction` / `validation` primitives so the recording timeline reads as named natural-language steps. | When the recording's step timeline matters more than raw control. Slightly higher per-step latency but cleaner for human reviewers to skim. |
-| **E2E Test** (mode 2) | `/test` comment | Designs a focused YAML E2E test from the diff, creates it on Revyl, runs it on the latest uploaded build, posts the report link. | When you want a structured test artifact you can re-run later. |
+For every PR:
 
-All three modes produce the same shape of PR comment: short summary → **single link** to the Revyl session/report. No embedded screenshots, no comparison tables — the recording is the entire audit trail.
+1. The build job builds your app and uploads it to Revyl, capturing a `build_version_id` so the device session is pinned to *this* PR's binary.
+2. Two parallel review jobs (one Android, one iOS) start a Revyl cloud device, hand control to Claude, and let it loop:
 
-### Cross-platform by default
+   ```
+   1. revyl device screenshot → Read the PNG
+   2. Decide the next action from what's on screen
+   3. revyl device tap --target "..."   (or swipe / type)
+   4. revyl device screenshot → Read the PNG
+   5. Loop
+   ```
 
-The default workflow runs both interactive jobs as a `[android, ios]` matrix, in parallel. So a single PR open triggers two cloud-device runs (one Android, one iOS), each posting its own PR comment with its own recording. Drop a platform by editing one line.
+3. When Claude is satisfied (or sees a bug), it posts a PR comment whose only evidence is a link to the Revyl session recording. The recording has the video and every action Claude took.
+
+That's the whole product. **Two CLAUDE markdown files, one workflow file, and the sample app.**
+
+### Optional: trigger an existing Revyl test or workflow
+
+If your team already has Revyl tests or workflows authored on the platform, the bot can trigger one against the PR build instead of (or in addition to) the reactive review. Add a `REVYL_TEST_NAME` or `REVYL_WORKFLOW_NAME` repo secret, then comment `/test` on a PR. Claude runs `revyl test run "$REVYL_TEST_NAME" --json --verbose` (or the workflow equivalent), parses `report_link` from the output, and posts that link to the PR. No test design, no YAML — just trigger-and-report. See `CLAUDE-test.md`.
 
 ---
 
-## Real recordings — the canonical Bug Bazaar demo
+## Real recordings — the Bug Bazaar demo
 
-The included sample app (`sample-app/`) is **Bug Bazaar**, a React Native e-commerce app with an intentional bug: adding "Orchid Mantis" silently swaps in "Gold Tortoise" at the cart layer. We ran the new flow against every cell of the matrix using a local harness — Claude **caught the bug autonomously** in all four cells, with no harness hint about the build state.
+The included sample app (`sample-app/`) is **Bug Bazaar**, a React Native e-commerce app with an intentional bug: adding "Orchid Mantis" silently swaps in "Gold Tortoise" at the cart layer. Claude was given the diff for a PR that "fixes" this bug, with no hint about whether the build it was testing actually contained the fix. Both runs caught the bug autonomously by reactively tapping through the app.
 
-| | Structured (`CLAUDE.md`) | Reactive (`CLAUDE-reactive.md`) |
-|---|---|---|
-| **Android** | [session 67fa9104](https://app.revyl.ai/sessions/67fa9104-3a87-4d38-ad9b-ed12d96cd5ee) — Pixel 7, 3:49, 7 timeline steps with a failing validation that catches the bug | [session 76a6daae](https://app.revyl.ai/sessions/76a6daae-0107-459c-b416-c38a58e1f4ae) — Pixel 7, 1:36, vision loop |
-| **iOS** | [session 74c6401b](https://app.revyl.ai/sessions/74c6401b-edbf-495d-ae2a-a297088c6241) — iPhone 17 Pro Max, 3:58, 9 timeline steps with failing validations | [session 2960f466](https://app.revyl.ai/sessions/2960f466-a49a-4321-9597-9262276a787f) — iPhone 17 Pro Max, 1:34, vision loop |
+| Platform | Recording | Device | Duration |
+|---|---|---|---|
+| **Android** | [session 76a6daae](https://app.revyl.ai/sessions/76a6daae-0107-459c-b416-c38a58e1f4ae) | Pixel 7 | 1:36 |
+| **iOS** | [session 2960f466](https://app.revyl.ai/sessions/2960f466-a49a-4321-9597-9262276a787f) | iPhone 17 Pro Max | 1:34 |
 
-The GIF above is the canonical Android structured run — you can watch Claude tap through Bug Bazaar, validate the cart contents against the PR's expected post-fix state, and the validation **fails** because the build still has the bug. That failed-validation step (red in the recording timeline) is the bug catch.
-
-**How autonomy works in each mode:**
-
-- **Structured mode** writes a `revyl device validation "The cart contains Orchid Mantis at $62.00"` step. Revyl's grounder evaluates the assertion against the live screen. Bug present → validation fails → red entry in the recording timeline → Claude posts ❌. Bug fixed → validation passes → green entry → Claude posts ✅. The recording itself is the audit trail; reviewers can scan it as text.
-- **Reactive mode** drives the device with `revyl device tap` / `screenshot` in a vision loop. The recording shows the video and a single "manual control" entry — no per-step timeline. Claude reads each screenshot, decides the next action, and writes the bug catch into the PR comment text. Lower latency, simpler code path, but the recording is less inspectable than structured mode.
-
-**Both modes pin the device to the build for that PR via `--build-version-id` and clean up with `revyl device stop --all` even on failure.**
-
-A full sample PR comment is in [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md).
+The GIF above is the Android run, sped up 2× and converted to a small loop. Open either session link to watch the full video plus the raw step-by-step actions Claude took. A full sample PR comment is in [`examples/sample-pr-comment.md`](examples/sample-pr-comment.md).
 
 ---
 
@@ -77,16 +77,24 @@ Go to **Settings → Secrets and variables → Actions** and add:
 
 If you only support one platform, set only that platform's `REVYL_APP_ID_*` secret and drop the other from the workflow matrix (one line edit, see "Customize" below).
 
+**Optional** (only for the `/test` mode):
+
+| Secret | What it does |
+|---|---|
+| `REVYL_TEST_NAME` | Name of an existing Revyl test to trigger when someone comments `/test` on a PR |
+| `REVYL_WORKFLOW_NAME` | Name of an existing Revyl workflow to trigger on `/test` (set this OR `REVYL_TEST_NAME`, not both — workflows take precedence) |
+
+Leave both unset if you don't want the `/test` mode.
+
 ### 3. Open a PR
 
 Make any change to `sample-app/` (or your own app source) and open a pull request.
 
-- The default reactive review fires automatically on PR open across both platforms.
+- The reactive review fires automatically on PR open across both platforms.
 - Re-trigger with `/review` (collaborators only).
-- Try the structured mode with `/review-structured`.
-- Try the E2E test mode with `/test` (after at least one prior PR push has uploaded a build).
+- If you've configured a Revyl test/workflow, comment `/test` to trigger it.
 
-That's it. Five secrets, one workflow file, three review modes.
+That's it. Five required secrets, two optional, one workflow file, two review modes (one default + one optional), one canonical demo.
 
 ---
 
@@ -101,21 +109,17 @@ const actualProduct = product.id === 3
   : product;
 ```
 
-Open a PR that "fixes" this by removing the substitution and using `product` directly.
-
-- **Reactive** (default): Claude boots both Android and iOS, navigates to Orchid Mantis, taps ADD TO CART, opens the cart, and reproduces the swap bug on whichever build still has it.
-- **Structured** (`/review-structured`): same flow but the recording timeline reads as named steps.
-- **Test** (`/test`): Claude creates a YAML test that asserts the cart contents.
+Open a PR that "fixes" this by removing the substitution and using `product` directly. Claude will boot Android and iOS in parallel, navigate to Orchid Mantis on each, tap ADD TO CART, open the cart, and reproduce the swap bug — autonomously, with no hint about what the build contains.
 
 ---
 
 ## Customize for your app
 
-The whole template is **one workflow file + three CLAUDE markdown files + one sample app**. Editing it is straightforward:
+The whole template is **one workflow file + two CLAUDE markdown files + one sample app**. Editing it is straightforward.
 
-### Pick which modes / platforms run
+### Pick which platforms run
 
-`.github/workflows/review.yml` has three review jobs (`review-reactive`, `review-structured`, `test-review`) plus one `build` job. Each has a clearly-marked `strategy.matrix.platform` you can edit:
+`.github/workflows/review.yml` has two jobs that use a `strategy.matrix.platform`. To skip a platform, edit the matrix:
 
 ```yaml
 strategy:
@@ -123,7 +127,9 @@ strategy:
     platform: [android, ios]   # ← drop one to skip a platform
 ```
 
-To **disable a mode entirely**, delete its job. To **flip the default mode-1 flavor** to structured, swap the `if:` blocks between `review-reactive` and `review-structured` so the structured one fires on `pull_request`.
+### Disable the `/test` trigger mode entirely
+
+Either delete the `test-review` job, or just leave both `REVYL_TEST_NAME` and `REVYL_WORKFLOW_NAME` unset — the job will skip itself silently.
 
 ### Replace the sample app
 
@@ -149,7 +155,7 @@ If you already have CI that builds your app, you can drop the build job entirely
 
 ### Update the CLAUDE files
 
-Tell Claude about your app's screens. Each file has a clearly-labelled "Demo hint — delete this section when you adapt this template" block at the bottom that you replace with your own context:
+Tell Claude about your app's screens. `CLAUDE.md` has a clearly-labelled "Demo hint — delete this section when you adapt this template" block at the bottom that you replace with your own context:
 
 ```markdown
 ## Your App
@@ -172,16 +178,16 @@ Each Claude job uses `claude_args: --model claude-sonnet-4-5`. Swap to `claude-o
 ## Architecture
 
 ```
-.github/workflows/review.yml    # GitHub Actions: build → 3 independent review jobs
-CLAUDE.md                        # Mode 1 STRUCTURED instructions (opt-in)
-CLAUDE-reactive.md               # Mode 1 REACTIVE instructions (default)
-CLAUDE-test.md                   # Mode 2 instructions (E2E YAML test)
+.github/workflows/review.yml    # GitHub Actions: build → review (matrix) → optional test-review
+CLAUDE.md                        # Reactive review instructions (the main flow)
+CLAUDE-test.md                   # OPTIONAL: trigger an existing Revyl test/workflow
 sample-app/                      # Bug Bazaar — demo React Native e-commerce app
 examples/
-└── sample-pr-comment.md         # Real PR comment from a local harness run
+├── demo.gif                     # Inline animated demo for the README
+└── sample-pr-comment.md         # Real PR comments from local harness runs
 ```
 
-The review bot is **four files**: `review.yml` (the trigger + build), `CLAUDE.md`, `CLAUDE-reactive.md`, and `CLAUDE-test.md`. Everything else is the sample app.
+The review bot is **three files**: `review.yml` (the trigger + build), `CLAUDE.md` (reactive review), `CLAUDE-test.md` (optional trigger-existing-test). Everything else is the sample app.
 
 ### How a PR open flows through the workflow
 
@@ -194,20 +200,20 @@ PR opened
    │     ├─ revyl build upload --json → captures build_version_id
    │     └─ exports per-platform build_version_id as job output
    │
-   └─ review-reactive job (matrix: android, ios) — needs: build
+   └─ review job (matrix: android, ios) — needs: build
          ├─ resolves PR base ref via gh api
-         ├─ reads CLAUDE-reactive.md
+         ├─ reads CLAUDE.md
          ├─ revyl device start --platform <p> --build-version-id <id>
          ├─ vision loop: screenshot → tap → screenshot → …
          ├─ revyl device stop --all
          └─ posts PR comment with https://app.revyl.ai/sessions/<id>
 ```
 
-Comment-triggered flows (`/review`, `/review-structured`, `/test`) skip the build job entirely and reuse the latest uploaded build for that app.
+The `/test` comment trigger runs `test-review` instead, which doesn't touch `revyl device` at all — it just calls `revyl test run` or `revyl workflow run` and posts the report link.
 
 ### Security
 
-- The `/review`, `/review-structured`, and `/test` comment triggers are gated to `OWNER` / `MEMBER` / `COLLABORATOR` (`author_association` check). External commenters on a public fork cannot burn API credits.
+- The `/review` and `/test` comment triggers are gated to `OWNER` / `MEMBER` / `COLLABORATOR` (`author_association` check). External commenters on a public fork cannot burn API credits.
 - PR-open trigger runs on `pull_request` events from same-repo branches. Forks pulling against this template don't get the secrets — GitHub strips them by default for fork PRs, so the build job will fail loudly rather than leaking credentials.
 - Newer commits / comments cancel in-flight runs via `concurrency:` so a long-running session doesn't block the next push.
 
@@ -215,7 +221,7 @@ Comment-triggered flows (`/review`, `/review-structured`, `/test`) skip the buil
 
 ## How the Revyl CLI works
 
-The core primitives the workflow / CLAUDE files use:
+The core primitives the workflow + `CLAUDE.md` use:
 
 ```bash
 # Start a cloud device pinned to a specific build
@@ -224,26 +230,27 @@ revyl device start --platform <android|ios> \
                    --build-version-id "$REVYL_BUILD_VERSION_ID" \
                    --json
 
-# REACTIVE primitives (used by CLAUDE-reactive.md)
+# Reactive primitives — the entire toolset for the default review job
 revyl device screenshot --out /tmp/screen.png
 revyl device tap        --target "Add to Cart button" --json
 revyl device swipe      --direction up --json
 revyl device type       --target "Search field" --text "beetles" --json
-
-# STRUCTURED primitives (used by CLAUDE.md)
-revyl device instruction "Tap the Add to Cart button" --json
-revyl device validation  "The cart contains Orchid Mantis at \$62.00" --json
-revyl device extract     "the order total" --json
+revyl device go-home    --json
+revyl device launch     --bundle-id <pkg> --json
 
 # Always clean up
 revyl device stop --all --json
 ```
 
-For **mode 2** (E2E test):
+For the **optional `/test` mode** (triggers an existing Revyl test/workflow):
 
 ```bash
-revyl test create my-test --from-file test.yaml --platform android --app "$REVYL_APP_ID" --no-open --force --json
-revyl test run    my-test --json --verbose   # → output includes report_link directly
+# Run an existing test by name
+revyl test run my-test --json --verbose
+# → output JSON includes report_link directly, no separate share call needed
+
+# Or run an existing workflow by name
+revyl workflow run my-workflow --json
 ```
 
 Both modes use Revyl's cloud devices — no local emulators or physical devices needed.

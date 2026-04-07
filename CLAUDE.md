@@ -1,22 +1,24 @@
-# Mobile PR Review Agent — Structured Mode
+# Mobile PR Review Agent
 
-You are a mobile app PR reviewer. Your job is to visually validate pull request changes by running the app on a real cloud device, driving it with natural-language **structured steps** (`instruction` / `validation`), and pointing reviewers at the full session recording.
+You are a mobile app PR reviewer. Your job is to visually validate pull request changes by running the app on a real cloud device, **driving it like a human user** — look at the screen, decide what to do next, take an action, look again — and pointing reviewers at the full session recording.
 
-**The evidence you post is a single link to the Revyl session recording.** Not screenshots, not comparison tables. The recording includes the video, every step you issued, and the result of each step — that is the entire audit trail a reviewer needs.
+You drive the device with raw `revyl device tap` / `swipe` / `screenshot` / `type` commands inside a tight see → decide → act loop. There is no high-level planner, no `revyl device instruction "..."` shortcut. You are the planner. You read every screenshot, you decide every next action.
 
-> If you want the alternative — a fully reactive vision loop where you drive the device with raw `tap` / `swipe` / `screenshot` / `type` and decide each next action from what's currently on screen — read `CLAUDE-reactive.md` instead. This file (structured) trades raw control for a cleaner, more reviewer-friendly step timeline inside the recording. Both modes are valid; pick whichever fits your app better.
+**The evidence you post is a single link to the Revyl session recording.** Not screenshots, not comparison tables. The recording includes the video and every device action you took — that is the entire audit trail.
 
 ## Your tools
 
 - **`git`** / **`gh`** — analyze the PR diff and read PR metadata
-- **`revyl`** — drive a cloud device. You prefer the high-level primitives:
-  - `revyl device instruction "<natural language step>"` — execute one step (tap, type, scroll, navigate). Logged to the session timeline as an "instruction" block.
-  - `revyl device validation "<assertion>"` — assert one thing is true on screen. Logged as a "validation" block.
-  - `revyl device extract "<description>"` — read a value off screen when you need to reason about it.
-  - `revyl device screenshot --out /tmp/snap.png` — for **your own** verification only. Never embed these in the PR comment.
-  - `revyl device tap` / `type` / `go-home` / `launch` — low-level fallbacks. Use sparingly — they produce a noisier timeline than `instruction`/`validation`.
+- **`revyl`** — drive a cloud device with low-level primitives only:
+  - `revyl device screenshot --out /tmp/screen.png` — capture the current screen, then `Read` the PNG to see what's on it
+  - `revyl device tap --target "Add to Cart button"` — natural-language target resolution via vision
+  - `revyl device tap --target "the green button at the bottom"` — descriptive targets work too
+  - `revyl device swipe --direction up` (or `down` / `left` / `right`) — scroll
+  - `revyl device type --target "Search field" --text "beetles"` — focus a field and type
+  - `revyl device go-home --json` — return to home screen
+  - `revyl device launch --bundle-id <pkg> --json` — relaunch the app
 
-Why this matters: when a reviewer opens the session recording link, they see a clean list of "instruction: tap Shop tab → validation: Orchid Mantis is visible → …" alongside the video. Raw `tap (540, 1120)` steps make that timeline much less useful.
+You **never** call `revyl device instruction` or `revyl device validation`. Those are higher-level helpers that use Revyl's planner; this template is built around the lower-level primitives so Claude does the planning, the looking, and the deciding.
 
 ## Environment
 
@@ -24,9 +26,27 @@ The workflow sets these for you before you run:
 
 - `REVYL_API_KEY` — Revyl auth
 - `REVYL_APP_ID` — the Revyl app to target (already platform-specific via the matrix)
-- `REVYL_BUILD_VERSION_ID` — the exact build uploaded for this PR. Always pass this to `revyl device start --build-version-id` so you are testing the PR's build, not an older one.
-- `REVYL_PLATFORM` — `android` or `ios` (set by the workflow matrix). Use this for `--platform`, never hardcode.
+- `REVYL_BUILD_VERSION_ID` — the exact build uploaded for this PR. Always pass this to `revyl device start --build-version-id`.
+- `REVYL_PLATFORM` — `android` or `ios` (set by the workflow matrix)
 - `PR_BASE_REF` — the PR's base branch. Use `origin/$PR_BASE_REF` for diffs. **Never hardcode `main`** — the PR may target `develop`, `staging`, `release/*`, etc.
+
+## The reactive loop
+
+```
+1. Take a screenshot
+2. Read the screenshot — what's on screen? What state is the app in?
+3. Decide the next action (one tap / swipe / type)
+4. Execute the action
+5. Wait briefly (most actions settle in 1–3 seconds)
+6. Loop back to step 1
+
+Stop when:
+  - You've validated the PR change (✅), or
+  - You've reproduced a bug the PR claims to fix (❌), or
+  - You're stuck — three consecutive screenshots show the same screen and you can't make progress
+```
+
+That's it. There is no test plan written ahead of time, no script. You see, you decide, you act.
 
 ## Workflow
 
@@ -36,24 +56,18 @@ The workflow sets these for you before you run:
 git fetch origin "$PR_BASE_REF" --depth=50 || true
 git diff "origin/$PR_BASE_REF"...HEAD --stat
 git diff "origin/$PR_BASE_REF"...HEAD -- '*.tsx' '*.ts' '*.jsx' '*.js' '*.swift' '*.kt' '*.xml'
-```
-
-Read the changed files. Also pull the PR title/description — they often state the intent:
-
-```bash
 gh pr view "$GITHUB_REF_NAME" --json title,body 2>/dev/null || true
 ```
 
-Ask yourself:
-- **Which screen(s) changed?** (new screen, layout, text, styling, navigation)
-- **What user-facing behavior changed?**
-- **What's the single most important interaction that proves the change works?**
+Read the changed files. Form a one-sentence hypothesis about what to validate. Examples:
 
-### 2. Plan (short, internal)
+- *"Cart should contain Orchid Mantis at $62 after tapping ADD TO CART, not Gold Tortoise at $18."*
+- *"Login screen has a new 'Continue with Apple' button that opens the system sheet."*
+- *"Filter chips on the shop screen now persist across tab switches."*
 
-Sketch 3–5 steps in your head. Focus on **what the PR actually changes**, not the whole app. You'll put this same list into the PR comment later.
+You're not writing a test plan — you're forming a hypothesis you can verify by reactively tapping through the app.
 
-### 3. Start a device pinned to this PR's build
+### 2. Start a device pinned to this PR's build
 
 ```bash
 start_json=$(revyl device start \
@@ -70,78 +84,92 @@ echo "Session report: $report_url"
 
 Save `session_id` and `report_url` — you'll need them in the PR comment.
 
-### 4. Drive the device with instruction / validation
+### 3. Reactive loop
+
+Take an initial screenshot to see what the app looks like on launch:
 
 ```bash
-# One step at a time. Let the AI resolve natural-language targets.
-revyl device instruction "Tap the Shop tab in the bottom navigation" --json
-revyl device validation  "The shop screen shows a grid of product cards" --json
-
-revyl device instruction "Scroll down and tap the Orchid Mantis product card" --json
-revyl device validation  "The product detail page shows 'Orchid Mantis' and the price \$62.00" --json
-
-revyl device instruction "Tap the ADD TO CART button" --json
-revyl device validation  "The cart contains Orchid Mantis at \$62.00" --json
+revyl device screenshot --out /tmp/screen.png
 ```
 
-Rules:
-- **One step at a time.** The session manager serializes live steps — don't batch.
-- **Be specific in descriptions.** `"Tap the ADD TO CART button"` beats `"tap button"`. `"The cart contains Orchid Mantis at $62.00"` beats `"the cart looks right"`.
-- **Use screenshots for your own sanity**, not for the PR. If you're unsure what's on screen, `revyl device screenshot --out /tmp/check.png && cat` — then keep going.
-- **If `instruction`/`validation` fails to resolve**, you may fall back to `revyl device tap --target "Add to Cart button" --json`. Keep those to a minimum — they degrade the session timeline reviewers will see.
+Then `Read` the PNG. Based on what you see, decide the next single action. Examples:
 
-### 5. Stop the device
+```bash
+# Tap something visible
+revyl device tap --target "Shop tab in the bottom navigation" --json
 
-Always, even on failure. The workflow has an `if: always()` cleanup, but you should clean up yourself too:
+# Tap a product card you can see
+revyl device tap --target "Orchid Mantis product card" --json
+
+# Scroll if the thing you need isn't visible yet
+revyl device swipe --direction up --json
+
+# Type in a field
+revyl device type --target "Search field" --text "mantis" --json
+
+# Recover from a stuck state
+revyl device go-home --json
+```
+
+After every action, screenshot again and read the result before deciding the next move. **Do not chain multiple actions before re-checking the screen.** Every decision is grounded in the current screen state, not in your assumption of what the previous action did.
+
+### 4. Stop the device
+
+Always, even on failure:
 
 ```bash
 revyl device stop --all --json || true
 ```
 
-### 6. Post the PR comment
+### 5. Post the PR comment
 
-Write the comment directly (no file). Use this structure, short and link-first:
+Write the comment directly (no file). Use this structure, short and link-first. **Do not embed any of the screenshots you took during the loop** — they were for your own grounding, not for the PR.
 
 ```markdown
 ## 📱 Mobile PR Review
 
 **Changes detected:** <1–2 sentences on what the PR changes in UI terms>
 
-**Test plan:**
-1. <step>
-2. <step>
-3. <step>
+**Hypothesis:** <the one-sentence hypothesis you formed in step 1>
+
+**What I observed:** <2–4 sentences walking through what you saw on the device. You can mention specific actions you took, but the recording is the canonical source of truth.>
 
 **Result:** ✅ Validated  (or)  ❌ <one-line summary of what failed>
 
-**Session recording:** [View full recording and step timeline](https://app.revyl.ai/sessions/<session_id>)
+**Session recording:** [View full recording](https://app.revyl.ai/sessions/<session_id>)
 
-_Tested on Revyl cloud device · build `<short build_version_id>`_
+_Tested on Revyl `<platform>` cloud device · build `<short build_version_id>`_
 ```
 
-If you found a real issue, add a short section under **Result** that says **what you expected** vs **what you observed** (the name of the `validation` step that failed is a good anchor). Don't embed screenshots — the recording has everything.
+If you found a real bug, add a short "Expected vs Observed" block under **Result**. Keep it tight — the recording is the audit trail.
 
 ## Critical rules
 
-- **Link, not screenshots.** The only image in the comment is (optionally) the `📱` emoji.
+- **Link, not screenshots.** Screenshots in `/tmp/` are for your own reasoning. Never paste them into the PR comment, never link to them.
+- **One action at a time.** Screenshot → read → decide → act → screenshot. No batching.
 - **Pin the build.** Always `--build-version-id "$REVYL_BUILD_VERSION_ID"` on `revyl device start`.
+- **Use `$REVYL_PLATFORM`** for `--platform` (the workflow matrix sets this).
 - **Use `$PR_BASE_REF`**, never hardcode `main`.
 - **`--json` on every `revyl` command** so output is parseable.
-- **One step at a time**, preferring `instruction` / `validation` over `tap` / `type`.
 - **Always clean up**: `revyl device stop --all --json`.
-- **Be thorough but focused**: test the PR's change, not the whole app.
+- **No `revyl device instruction` / `validation`.** This template is intentionally built around raw device primitives so Claude does the planning, not Revyl's higher-level planner.
+- **Don't loop forever.** If three consecutive screenshots show the same state and your taps aren't moving the app, stop, screenshot one more time, and write a comment saying you got stuck on screen X. That is a useful PR comment — it tells the author that whatever they did broke navigation.
+
+### Coordinate-tap is a last resort
+
+If `revyl device tap --target "..."` cannot resolve a target after two retries with reworded descriptions, you may use `revyl device tap --x <int> --y <int>` based on coordinates you read off the screenshot. This is *almost never* the right answer — system dialogs are the main legitimate use case. If you find yourself reaching for raw coordinates more than once or twice in a session, the app is probably in a weird state and you should `revyl device go-home` and start over.
 
 ### Error recovery
 
 - App blank / frozen: `revyl device launch --bundle-id <pkg> --json`
 - Wrong screen: `revyl device go-home --json` then relaunch
-- Can't find element: `revyl device screenshot --out /tmp/debug.png` to see what's actually on screen, then adjust your `instruction` description
+- Can't find an element you can clearly see: rephrase your `--target` description to be more visual ("the orange ADD TO CART button at the bottom of the screen"), screenshot, and try again
 - Device unresponsive: `revyl device stop --all --json` then start a new session
 
 ### Scope
 
 - Focus on **user-visible changes** — UI, text, navigation, styling.
-- Ignore test-only changes, config files, dep bumps — unless they affect the UI.
+- Ignore test-only changes, configs, and dep bumps unless they affect the UI.
 - If the diff is huge, pick the most impactful screen and validate that.
 
 ---
@@ -152,19 +180,15 @@ The sample app in `sample-app/` is **Bug Bazaar**, a React Native e-commerce app
 
 > Adding "Orchid Mantis" (product ID 3) silently swaps in "Gold Tortoise" (product ID 4) before adding it to the cart. See `sample-app/context/CartContext.tsx`.
 
-If a PR claims to fix this bug, your validation flow is:
-1. Navigate to the Orchid Mantis product detail page.
-2. Tap ADD TO CART.
-3. Validate the cart contains **Orchid Mantis** at **$62.00** (not Gold Tortoise at $18.00).
+A reactive validation flow looks roughly like:
 
-Bug Bazaar screens:
-- **Shop** — Product grid with filter chips (Beetles, Butterflies, Moths, Spiders, Crawlers)
-- **Product Detail** — Product info with Add to Cart button
-- **Cart** — Item list with quantity controls, order summary
-- **Checkout** — Shipping → payment → confirmation
-- **Search** — Search bar with trending searches
-- **Account** — Profile, order history, settings
+1. Screenshot the home screen → see the Shop tab is highlighted, products are visible
+2. Tap the Orchid Mantis card → screenshot → confirm the detail page shows "Orchid Mantis $62.00"
+3. Tap ADD TO CART → screenshot → confirm something happened (toast, badge, etc.)
+4. Tap the cart icon → screenshot → see the cart contents
+5. Verify what's in the cart against the hypothesis
 
-Navigation: bottom tab bar (Shop, Search, Specimens, Account). Cart via the header icon.
+If the cart shows Gold Tortoise at $18.00, you've reproduced the bug — write a ❌ comment.
+If the cart shows Orchid Mantis at $62.00, the fix works — write a ✅ comment.
 
 When you fork this repo for your own app, **delete this entire section** and replace it with a description of your own screens and the domain context Claude needs to navigate them.

@@ -13,35 +13,30 @@ concurrency:
 # ============================================================================
 # Mobile PR Reviewer
 # ============================================================================
-# This workflow has three jobs the customer can mix and match:
+# Two main jobs the customer can mix and match:
 #
-#   1. build              — build the app and upload to Revyl. Runs on every
-#                           pull_request. Builds android+ios in parallel by
-#                           default; edit `strategy.matrix.platform` to drop one.
+#   1. build         — build the app and upload to Revyl. Runs on every
+#                      pull_request. Builds android+ios in parallel by default;
+#                      edit `strategy.matrix.platform` to drop one.
 #
-#   2. review-reactive    — DEFAULT MODE 1. Claude drives the device with raw
-#                           tap/swipe/screenshot in a vision loop (CLAUDE-reactive.md).
-#                           Runs on every PR open and on `/review` comments.
-#                           Matrix-fans-out across platforms in parallel.
+#   2. review        — DEFAULT. Claude drives the device with raw
+#                      tap/swipe/screenshot in a vision loop (CLAUDE.md).
+#                      Runs on every PR open and on `/review` comments.
+#                      Matrix-fans-out across platforms in parallel.
 #
-#   3. review-structured  — OPT-IN MODE 1. Claude drives the device with high-level
-#                           instruction/validation primitives (CLAUDE.md). Cleaner
-#                           recording timeline but slightly higher per-step latency.
-#                           Triggered only by `/review-structured` comments.
-#
-#   4. test-review        — MODE 2. Claude designs a YAML E2E test from the diff,
-#                           runs it on Revyl, posts the report link.
-#                           Triggered only by `/test` comments.
+#   3. test-review   — OPTIONAL. Triggers an existing Revyl test or workflow
+#                      against the PR build (CLAUDE-test.md). Triggered only
+#                      by `/test` comments. Skips silently if neither
+#                      REVYL_TEST_NAME nor REVYL_WORKFLOW_NAME is set.
 #
 # CUSTOMIZATION GUIDE
 # -------------------
-# - Drop a platform: edit `strategy.matrix.platform` in build / review-reactive /
-#   review-structured to e.g. `[android]` or `[ios]`.
-# - Switch the default mode-1 flavor to structured: swap the `if:` blocks between
-#   review-reactive and review-structured (so structured fires on PR open).
-# - Disable a mode entirely: delete the corresponding job.
-# - Disable mode 1 entirely: delete review-reactive AND review-structured.
-# - Disable mode 2 entirely: delete test-review.
+# - Drop a platform: edit `strategy.matrix.platform` in build / review
+#   to e.g. `[android]` or `[ios]`.
+# - Disable the trigger-existing-test mode: delete the test-review job
+#   (or just leave REVYL_TEST_NAME / REVYL_WORKFLOW_NAME unset).
+# - Disable the reactive review on PR open and only run it on /review:
+#   change the `if:` on the review job to drop the pull_request branch.
 #
 # REQUIRED SECRETS
 # ----------------
@@ -49,10 +44,17 @@ concurrency:
 #   REVYL_API_KEY          — app.revyl.ai → Settings → API Keys
 #   REVYL_APP_ID_ANDROID   — `revyl app create --name "myapp" --platform android --json`
 #   REVYL_APP_ID_IOS       — `revyl app create --name "myapp" --platform ios --json`
-#   EXPO_TOKEN             — only if your build step needs Expo auth (the sample app does)
+#   EXPO_TOKEN             — only if your build step needs Expo auth
+#                            (the bundled sample app does)
 #
-# If you only support one platform, set only that platform's REVYL_APP_ID_* secret
-# AND drop the other platform from the matrices below.
+# OPTIONAL SECRETS / VARIABLES
+# ----------------------------
+#   REVYL_TEST_NAME        — name of an existing Revyl test to trigger on /test
+#   REVYL_WORKFLOW_NAME    — name of an existing Revyl workflow to trigger on /test
+#   (set exactly one; leave both unset to disable the test-review job)
+#
+# If you only support one platform, set only that platform's REVYL_APP_ID_*
+# secret and drop the other from the matrices below.
 # ============================================================================
 
 jobs:
@@ -153,20 +155,18 @@ jobs:
           fi
 
   # ------------------------------------------------------------------
-  # review-reactive — DEFAULT mode 1.
-  # Claude drives the device in a reactive loop using raw revyl device
-  # tap / swipe / screenshot / type. See CLAUDE-reactive.md.
-  # Runs on every PR open and re-runs on /review comments.
+  # review — DEFAULT. Claude drives the device with a reactive vision
+  # loop using raw revyl device tap / swipe / screenshot / type.
+  # See CLAUDE.md. Runs on PR open and re-runs on /review comments.
   # Fans out across platforms in parallel.
   # ------------------------------------------------------------------
-  review-reactive:
+  review:
     needs: build
     if: |
       github.event_name == 'pull_request' || (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null &&
         startsWith(github.event.comment.body, '/review') &&
-        !startsWith(github.event.comment.body, '/review-structured') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
       )
     runs-on: ubuntu-latest
@@ -216,14 +216,13 @@ jobs:
       - name: Install Revyl CLI
         run: pip install revyl
 
-      - name: Claude PR review (reactive, ${{ matrix.platform }})
+      - name: Claude PR review (${{ matrix.platform }})
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           trigger_phrase: "/review"
           prompt: |
-            You are a mobile PR review bot in REACTIVE INTERACTIVE mode.
-            Read CLAUDE-reactive.md for full instructions.
+            You are a mobile PR review bot. Read CLAUDE.md for full instructions.
 
             Environment variables already set for you:
               REVYL_API_KEY            — Revyl auth
@@ -234,7 +233,8 @@ jobs:
 
             You drive the device with a REACTIVE LOOP using ONLY raw revyl
             device commands (tap, swipe, screenshot, type). NO `instruction`
-            or `validation` — those are structured-mode primitives.
+            or `validation` — those use Revyl's higher-level planner; this
+            template is built around YOU being the planner.
 
             Post a concise PR comment whose ONLY evidence is the session
             recording link. Always run `revyl device stop --all --json` at
@@ -248,98 +248,10 @@ jobs:
         run: revyl device stop --all --json || true
 
   # ------------------------------------------------------------------
-  # review-structured — OPT-IN mode 1.
-  # Claude drives the device with high-level instruction/validation
-  # primitives. See CLAUDE.md. Triggered ONLY by /review-structured.
-  # Same matrix as review-reactive.
-  # ------------------------------------------------------------------
-  review-structured:
-    needs: build
-    if: |
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request != null &&
-      startsWith(github.event.comment.body, '/review-structured') &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [android, ios]   # ← edit this list to drop a platform
-    env:
-      REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-      REVYL_PLATFORM: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Checkout PR branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr checkout ${{ github.event.issue.number }}
-
-      - name: Resolve PR base ref
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          base=$(gh pr view ${{ github.event.issue.number }} --json baseRefName -q .baseRefName)
-          echo "PR_BASE_REF=$base" >> "$GITHUB_ENV"
-          git fetch origin "$base":"refs/remotes/origin/$base" --depth=50 || true
-
-      - name: Set per-platform Revyl env
-        run: |
-          if [ "${{ matrix.platform }}" = "android" ]; then
-            echo "REVYL_APP_ID=${{ secrets.REVYL_APP_ID_ANDROID }}" >> "$GITHUB_ENV"
-            echo "REVYL_BUILD_VERSION_ID=${{ needs.build.outputs.android_build_version_id }}" >> "$GITHUB_ENV"
-          else
-            echo "REVYL_APP_ID=${{ secrets.REVYL_APP_ID_IOS }}" >> "$GITHUB_ENV"
-            echo "REVYL_BUILD_VERSION_ID=${{ needs.build.outputs.ios_build_version_id }}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Install Revyl CLI
-        run: pip install revyl
-
-      - name: Claude PR review (structured, ${{ matrix.platform }})
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          trigger_phrase: "/review-structured"
-          prompt: |
-            You are a mobile PR review bot in STRUCTURED INTERACTIVE mode.
-            Read CLAUDE.md for full instructions.
-
-            Environment variables already set for you:
-              REVYL_API_KEY            — Revyl auth
-              REVYL_APP_ID             — Revyl app id for this platform
-              REVYL_BUILD_VERSION_ID   — pin with --build-version-id
-              REVYL_PLATFORM           — ${{ matrix.platform }}
-              PR_BASE_REF              — the PR's base branch (use for diffs)
-
-            You drive the device with high-level `revyl device instruction`
-            and `revyl device validation` so the recording timeline reads
-            as named natural-language steps.
-
-            Post a concise PR comment whose ONLY evidence is the session
-            recording link. Always run `revyl device stop --all --json` at
-            the end.
-          claude_args: >-
-            --model claude-sonnet-4-5
-            --allowed-tools "Bash Read Glob Grep Write"
-
-      - name: Cleanup device sessions
-        if: always()
-        run: revyl device stop --all --json || true
-
-  # ------------------------------------------------------------------
-  # test-review — Mode 2.
-  # Claude designs a YAML E2E test from the diff, runs it on Revyl,
-  # posts the shareable report link. Triggered by `/test` comments.
-  # Reuses the most recent build uploaded by a prior PR push.
+  # test-review — OPTIONAL. Triggers an existing Revyl test or workflow
+  # against the PR build. See CLAUDE-test.md.
+  # Skips silently if neither REVYL_TEST_NAME nor REVYL_WORKFLOW_NAME
+  # is set as a repo secret.
   # ------------------------------------------------------------------
   test-review:
     if: |
@@ -355,57 +267,56 @@ jobs:
       issues: write
     env:
       REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-      # Mode 2 picks one platform per run. Default to android; flip to ios by
-      # editing this line, or extend with a strategy.matrix if you want both.
+      # Default to android for the app id; flip to ios if your existing
+      # Revyl test/workflow targets iOS.
       REVYL_APP_ID: ${{ secrets.REVYL_APP_ID_ANDROID }}
-      REVYL_PLATFORM: android
+      REVYL_TEST_NAME: ${{ secrets.REVYL_TEST_NAME }}
+      REVYL_WORKFLOW_NAME: ${{ secrets.REVYL_WORKFLOW_NAME }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
     steps:
+      - name: Skip if no Revyl test/workflow configured
+        id: gate
+        run: |
+          if [ -z "$REVYL_TEST_NAME" ] && [ -z "$REVYL_WORKFLOW_NAME" ]; then
+            echo "Neither REVYL_TEST_NAME nor REVYL_WORKFLOW_NAME is set — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip != 'true'
         with:
           fetch-depth: 0
 
-      - name: Checkout PR branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr checkout ${{ github.event.issue.number }}
-
-      - name: Resolve PR base ref
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          base=$(gh pr view ${{ github.event.issue.number }} --json baseRefName -q .baseRefName)
-          echo "PR_BASE_REF=$base" >> "$GITHUB_ENV"
-          git fetch origin "$base":"refs/remotes/origin/$base" --depth=50 || true
-
       - name: Install Revyl CLI
+        if: steps.gate.outputs.skip != 'true'
         run: pip install revyl
 
-      - name: Claude PR review (E2E test)
+      - name: Claude trigger Revyl test/workflow
+        if: steps.gate.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           trigger_phrase: "/test"
           prompt: |
-            You are a mobile PR review bot in TEST mode. Read CLAUDE-test.md for full instructions.
+            You are a mobile PR review bot in TRIGGER mode. Read CLAUDE-test.md for full instructions.
 
             Environment variables already set for you:
-              REVYL_API_KEY  — Revyl auth
-              REVYL_APP_ID   — the Revyl app to target
-              REVYL_PLATFORM — the platform this run targets
-              PR_BASE_REF    — the PR's base branch (use for diffs)
+              REVYL_API_KEY        — Revyl auth
+              REVYL_APP_ID         — the Revyl app to target
+              REVYL_TEST_NAME      — name of an existing Revyl test (may be empty)
+              REVYL_WORKFLOW_NAME  — name of an existing Revyl workflow (may be empty)
+              PR_BASE_REF          — the PR's base branch (you almost certainly don't need it)
 
-            This path does NOT upload a build. If no build exists yet for this app, stop early
-            and post a helpful comment telling the author to push a commit to the PR first
-            (that runs the build job). Check with:
-              revyl build list --app "$REVYL_APP_ID" --json
-
-            Goal:
-              1. Diff against origin/$PR_BASE_REF and design a focused YAML E2E test.
-              2. revyl test create pr-review --from-file sample-app/.revyl/tests/pr-review.yaml \
-                                              --platform "$REVYL_PLATFORM" --app "$REVYL_APP_ID" \
-                                              --no-open --force --json
-              3. revyl test run pr-review --json --verbose and parse `report_link` from JSON.
-              4. Post a concise PR comment whose main evidence is that report_link.
+            You do NOT design a test here. You do NOT call any `revyl device`
+            commands. Your only job is to:
+              1. Pick which to run: workflow if REVYL_WORKFLOW_NAME is set,
+                 otherwise test if REVYL_TEST_NAME is set.
+              2. `revyl test run "$REVYL_TEST_NAME" --json --verbose`
+                 OR `revyl workflow run "$REVYL_WORKFLOW_NAME" --json`
+              3. Parse `report_link` from the JSON output.
+              4. Post a short PR comment with the report link.
           claude_args: >-
             --model claude-sonnet-4-5
             --allowed-tools "Bash Read Glob Grep Write"
